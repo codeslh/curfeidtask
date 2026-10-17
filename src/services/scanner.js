@@ -119,10 +119,3 @@ export async function scanPlatforms() {
   }
   return summary;
 }
-
-let timer;
-export function startScheduler() {
-  if (!config.scanner.enabled || timer) return;
-  timer = setInterval(() => scanPlatforms().catch((e) => console.error('Tarama hatası:', e)), config.scanner.intervalMinutes * 60_000);
-  timer.unref();
-}

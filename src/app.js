@@ -1,7 +1,7 @@
 import cookieParser from 'cookie-parser';
 import express from 'express';
 import path from 'node:path';
-import { ROOT } from './config.js';
+import { config, ROOT } from './config.js';
 import { router as adminRouter } from './routes/admin.js';
 import { router as authRouter } from './routes/auth.js';
 import { router as publicRouter } from './routes/public.js';
@@ -19,6 +19,13 @@ export function createApp() {
   app.use((req, res, next) => {
     res.set('X-Frame-Options', 'SAMEORIGIN');
     res.set('Referrer-Policy', 'same-origin');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (config.publicUrl.startsWith('https://')) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    // Panel pages only load our own scripts; demos/previews set their own sandbox CSP.
+    if (!/^\/(demo|preview)\//.test(req.path)) {
+      res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
+    }
     // Browsers only send JSON from scripts; refusing other content types blocks form-based CSRF.
     if (req.path.startsWith('/api/') && !['GET', 'HEAD'].includes(req.method) && !req.is('application/json')) {
       return res.status(415).json({ error: 'İstekler JSON olmalı' });

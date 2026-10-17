@@ -1,14 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
-
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fo-test-'));
-process.env.DATA_DIR = tmp;
-process.env.DB_FILE = path.join(tmp, 'test.db');
-process.env.AI_MOCK = '1';
-process.env.PUBLIC_URL = 'http://localhost';
+import { tmp } from './helpers.js';
 
 const { openDb, get, all, insert } = await import('../src/db.js');
 const { createApp } = await import('../src/app.js');

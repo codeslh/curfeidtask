@@ -224,7 +224,88 @@ CREATE TABLE IF NOT EXISTS notifications (
   read INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Pending second factor after a correct password (short-lived).
+CREATE TABLE IF NOT EXISTS login_challenges (
+  id TEXT PRIMARY KEY,               -- sha256 of the challenge token
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  ip TEXT, user_agent TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  id TEXT PRIMARY KEY,               -- sha256 of the e-mailed token
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  ip TEXT,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Every state-changing action taken through the panel.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER, email TEXT,
+  action TEXT NOT NULL,              -- e.g. "POST /api/payments/3/refund"
+  status INTEGER,
+  detail TEXT,
+  ip TEXT, user_agent TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS audit_created ON audit_log(created_at);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  name TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  schedule TEXT NOT NULL,            -- JSON: {type:'interval',minutes} | {type:'daily',time} | {type:'monthly',day,time}
+  state TEXT NOT NULL DEFAULT '{}',  -- job-private JSON (e.g. last month reported)
+  last_run_at TEXT, last_status TEXT, last_message TEXT,
+  next_run_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS job_runs (
+  id INTEGER PRIMARY KEY,
+  job TEXT NOT NULL,
+  trigger TEXT NOT NULL,             -- schedule | manual
+  status TEXT NOT NULL,              -- running | ok | error
+  message TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS job_runs_job ON job_runs(job, id);
 `;
+
+// Columns added after the first release; ALTER them into older databases.
+const COLUMNS = {
+  users: {
+    active: 'INTEGER NOT NULL DEFAULT 1',
+    notify: 'INTEGER NOT NULL DEFAULT 1',
+    totp_secret: 'TEXT',
+    totp_enabled: 'INTEGER NOT NULL DEFAULT 0',
+    recovery_codes: 'TEXT',
+    last_login_at: 'TEXT',
+    totp_last_counter: 'INTEGER NOT NULL DEFAULT 0', // blocks replay of an already used code
+  },
+  conversations: {
+    followup_count: 'INTEGER NOT NULL DEFAULT 0',
+    last_escalation_notice_at: 'TEXT',
+  },
+  payments: {
+    reminder_count: 'INTEGER NOT NULL DEFAULT 0',
+    last_reminder_at: 'TEXT',
+    overdue_notified: 'INTEGER NOT NULL DEFAULT 0',
+  },
+};
+
+function migrate(d) {
+  for (const [table, cols] of Object.entries(COLUMNS)) {
+    const existing = new Set(d.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    for (const [col, def] of Object.entries(cols)) {
+      if (!existing.has(col)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
 
 let db;
 
@@ -235,6 +316,7 @@ export function openDb(file) {
   db = new DatabaseSync(target);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

@@ -16,6 +16,10 @@ async function api(method, url, body) {
   });
   if (res.status === 401 && !url.startsWith('/auth')) { renderLogin(); throw new Error('Oturum açın'); }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 403 && data.code === '2fa_required' && location.hash !== '#/security') {
+    location.hash = '#/security';
+    toast(data.error, true);
+  }
   if (!res.ok) throw new Error(data.error || `Hata ${res.status}`);
   return data;
 }
@@ -27,8 +31,11 @@ const DEL = (u) => api('DELETE', u);
 function toast(msg, isError = false) {
   const el = document.createElement('div');
   el.textContent = msg;
-  el.style.cssText = `position:fixed;right:16px;bottom:16px;z-index:9;padding:10px 14px;border-radius:8px;background:var(--surface);border:1px solid var(--border);color:${isError ? 'var(--bad)' : 'var(--text)'};box-shadow:0 4px 16px rgba(0,0,0,.15)`;
-  document.body.append(el);
+  el.className = 'toast';
+  if (isError) el.style.color = 'var(--bad)';
+  let stack = $('#toasts');
+  if (!stack) { stack = document.createElement('div'); stack.id = 'toasts'; document.body.append(stack); }
+  stack.append(el);
   setTimeout(() => el.remove(), 3500);
 }
 
@@ -49,6 +56,7 @@ const STATUS_PILL = {
   new: '', filtered_out: 'muted', contacted: 'good', needs_admin: 'warn', won: 'good', lost: 'muted',
   pending: 'warn', paid: 'good', refunded: 'bad', partially_refunded: 'warn', cancelled: 'muted', failed: 'bad',
   review: 'warn', build_failed: 'bad', changes_requested: 'warn', demo_live: 'good', awaiting_payment: 'warn', delivered: 'good',
+  ok: 'good', error: 'bad', running: 'warn', '2fa_failed': 'bad', login_failed: 'bad', login_blocked: 'bad', '2fa_disabled': 'warn',
 };
 const LABELS = {
   open: 'Açık', escalated: 'Admin bekliyor', closed: 'Kapalı', ai: 'Yapay zeka', human: 'Admin',
@@ -60,6 +68,10 @@ const LABELS = {
   whatsapp: 'WhatsApp', web: 'Web', email: 'E-posta', platform: 'Platform',
   login_success: 'Giriş', login_failed: 'Hatalı giriş', login_blocked: 'Engellendi', logout: 'Çıkış',
   password_changed: 'Şifre değişti', session_revoked: 'Oturum sonlandırıldı', settings_changed: 'Ayar değişti', refund: 'İade',
+  password_ok: 'Şifre doğru (2FA bekleniyor)', '2fa_failed': 'Hatalı 2FA kodu', '2fa_enabled': '2FA açıldı', '2fa_disabled': '2FA kapatıldı',
+  password_reset: 'Şifre sıfırlandı', reset_requested: 'Sıfırlama istendi', session_expired: 'Oturum zaman aşımı', recovery_codes_regenerated: 'Kurtarma kodları yenilendi',
+  ok: 'Başarılı', error: 'Hata', running: 'Çalışıyor', schedule: 'Zamanlanmış', manual: 'Elle',
+  admin: 'Yönetici', operator: 'Operatör', viewer: 'İzleyici',
 };
 const pill = (s) => `<span class="pill ${STATUS_PILL[s] || ''}">${esc(LABELS[s] || s)}</span>`;
 
@@ -67,6 +79,7 @@ const pill = (s) => `<span class="pill ${STATUS_PILL[s] || ''}">${esc(LABELS[s] 
 // Shell, auth
 // ---------------------------------------------------------------------------
 
+// [key, label, roles allowed to see it]
 const NAV = [
   ['dashboard', 'Panel'],
   ['conversations', 'Konuşmalar'],
@@ -77,43 +90,106 @@ const NAV = [
   ['payments', 'Ödemeler & faturalar'],
   ['expenses', 'Giderler'],
   ['notifications', 'Bildirimler'],
+  ['jobs', 'Zamanlanmış görevler', ['admin']],
+  ['users', 'Ekip', ['admin']],
+  ['audit', 'Denetim kaydı', ['admin']],
   ['security', 'Güvenlik'],
-  ['settings', 'Ayarlar'],
+  ['settings', 'Ayarlar', ['admin']],
 ];
+const visibleNav = () => NAV.filter(([, , roles]) => !roles || roles.includes(me?.role));
+const isAdmin = () => me?.role === 'admin';
 
 let me = null;
 let pollTimer = null;
 
 async function boot() {
+  const hash = location.hash.replace(/^#/, '');
+  if (hash.startsWith('/reset/')) return renderReset(hash.slice(7));
   const status = await fetch('/api/auth/status').then((r) => r.json());
   if (status.needs_setup) return renderSetup();
   if (!status.user) return renderLogin();
   me = status.user;
+  window.removeEventListener('hashchange', route);
   window.addEventListener('hashchange', route);
   route();
 }
 
-function renderLogin() {
+function authCard(inner) {
   window.removeEventListener('hashchange', route);
-  app.innerHTML = `<div class="card login"><h1>Giriş yap</h1>
+  app.innerHTML = `<div class="card login">${inner}</div>`;
+}
+
+function renderLogin() {
+  authCard(`<h1>Giriş yap</h1>
     <form id="f"><label>E-posta<input name="email" type="email" required autocomplete="username"></label>
     <label>Şifre<input name="password" type="password" required autocomplete="current-password"></label>
-    <div class="error" id="err"></div><button class="primary">Giriş</button></form></div>`;
+    <div class="error" id="err"></div><div class="row"><button class="primary">Giriş</button><span class="spacer"></span><a href="#" id="forgot">Şifremi unuttum</a></div></form>`);
+  $('#forgot').onclick = (e) => { e.preventDefault(); renderForgot(); };
   $('#f').onsubmit = async (e) => {
     e.preventDefault();
-    const fd = Object.fromEntries(new FormData(e.target));
     try {
-      await api('POST', '/auth/login', fd);
+      const r = await api('POST', '/auth/login', Object.fromEntries(new FormData(e.target)));
+      if (r.needs_2fa) return renderTwoFactor(r.challenge);
       boot();
     } catch (err) { $('#err').textContent = err.message; }
   };
 }
 
+function renderTwoFactor(challenge) {
+  authCard(`<h1>İki adımlı doğrulama</h1><p class="muted">Doğrulama uygulamanızdaki 6 haneli kodu girin. Telefonunuza erişemiyorsanız kurtarma kodlarınızdan birini kullanabilirsiniz.</p>
+    <form id="f"><label>Kod<input name="code" required autocomplete="one-time-code" inputmode="numeric" autofocus></label>
+    <div class="error" id="err"></div><div class="row"><button class="primary">Doğrula</button><span class="spacer"></span><a href="#" id="back">Geri</a></div></form>`);
+  $('#back').onclick = (e) => { e.preventDefault(); renderLogin(); };
+  $('#f').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('POST', '/auth/2fa', { challenge, code: e.target.code.value });
+      boot();
+    } catch (err) {
+      $('#err').textContent = err.message;
+      if (/süresi doldu/.test(err.message)) setTimeout(renderLogin, 1500);
+    }
+  };
+}
+
+function renderForgot() {
+  authCard(`<h1>Şifremi unuttum</h1><p class="muted">E-posta adresinizi girin; kayıtlıysa şifre sıfırlama bağlantısı gönderilecek.</p>
+    <form id="f"><label>E-posta<input name="email" type="email" required></label>
+    <div class="error" id="err"></div><div class="row"><button class="primary">Bağlantı gönder</button><span class="spacer"></span><a href="#" id="back">Girişe dön</a></div></form>`);
+  $('#back').onclick = (e) => { e.preventDefault(); renderLogin(); };
+  $('#f').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api('POST', '/auth/forgot', Object.fromEntries(new FormData(e.target)));
+      $('#err').style.color = 'var(--good)';
+      $('#err').textContent = r.message;
+    } catch (err) { $('#err').textContent = err.message; }
+  };
+}
+
+function renderReset(token) {
+  authCard(`<h1>Yeni şifre belirle</h1>
+    <form id="f"><label>Yeni şifre (en az 10 karakter, harf + rakam)<input name="password" type="password" required autocomplete="new-password"></label>
+    <label>Yeni şifre (tekrar)<input name="password2" type="password" required autocomplete="new-password"></label>
+    <div class="error" id="err"></div><button class="primary">Şifreyi kaydet</button></form>`);
+  $('#f').onsubmit = async (e) => {
+    e.preventDefault();
+    const { password, password2 } = Object.fromEntries(new FormData(e.target));
+    if (password !== password2) { $('#err').textContent = 'Şifreler eşleşmiyor'; return; }
+    try {
+      await api('POST', '/auth/reset', { token, password });
+      location.hash = '';
+      toast('Şifreniz değiştirildi, giriş yapabilirsiniz');
+      renderLogin();
+    } catch (err) { $('#err').textContent = err.message; }
+  };
+}
+
 function renderSetup() {
-  app.innerHTML = `<div class="card login"><h1>İlk kurulum</h1><p class="muted">Yönetici hesabını oluşturun.</p>
+  authCard(`<h1>İlk kurulum</h1><p class="muted">Yönetici hesabını oluşturun.</p>
     <form id="f"><label>Ad<input name="name" required></label><label>E-posta<input name="email" type="email" required></label>
     <label>Şifre (en az 10 karakter, harf + rakam)<input name="password" type="password" required autocomplete="new-password"></label>
-    <div class="error" id="err"></div><button class="primary">Oluştur</button></form></div>`;
+    <div class="error" id="err"></div><button class="primary">Oluştur</button></form>`);
   $('#f').onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -133,7 +209,7 @@ async function shell(active) {
     : k === 'conversations' && counts.esc ? counts.esc
     : k === 'projects' && counts.review ? counts.review : 0);
   app.innerHTML = `<div class="layout"><nav class="side"><div class="brand">Freelance Otomasyon</div>
-    ${NAV.map(([k, l]) => `<a href="#/${k}" class="${k === active ? 'active' : ''}">${l}${badge(k) ? `<span class="badge">${badge(k)}</span>` : ''}</a>`).join('')}
+    ${visibleNav().map(([k, l]) => `<a href="#/${k}" class="${k === active ? 'active' : ''}">${l}${badge(k) ? `<span class="badge">${badge(k)}</span>` : ''}</a>`).join('')}
     <a href="#" id="logout">Çıkış (${esc(me?.name || '')})</a></nav><main id="main"></main></div>`;
   $('#logout').onclick = async (e) => {
     e.preventDefault();
@@ -147,10 +223,12 @@ async function shell(active) {
 async function route() {
   clearInterval(pollTimer);
   const [, page = 'dashboard', id] = location.hash.replace(/^#/, '').split('/');
-  const view = VIEWS[page] || VIEWS.dashboard;
-  const main = await shell(VIEWS[page] ? page : 'dashboard');
+  if (page === 'reset') return renderReset(id);
+  const allowed = visibleNav().some(([k]) => k === page);
+  const key = VIEWS[page] && allowed ? page : 'dashboard';
+  const main = await shell(key);
   try {
-    await view(main, id);
+    await VIEWS[key](main, id);
   } catch (err) {
     main.innerHTML = `<div class="error">${esc(err.message)}</div>`;
   }
@@ -418,7 +496,7 @@ async function viewProject(main, id) {
 
 async function viewCustomers(main) {
   const list = await GET('/customers');
-  main.innerHTML = `<h1>Müşteriler</h1><div class="card table-wrap"><table><tr><th>Ad</th><th>Telefon</th><th>E-posta</th><th>Kaynak</th><th class="num">Proje</th><th class="num">Ödenen</th><th>Kayıt</th></tr>
+  main.innerHTML = `<div class="row"><h1>Müşteriler</h1><span class="spacer"></span>${isAdmin() ? '<a class="btn" href="/api/export/customers.csv">CSV indir</a>' : ''}</div><div class="card table-wrap"><table><tr><th>Ad</th><th>Telefon</th><th>E-posta</th><th>Kaynak</th><th class="num">Proje</th><th class="num">Ödenen</th><th>Kayıt</th></tr>
     ${list.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.phone || '-')}</td><td>${esc(c.email || '-')}</td><td>${esc(c.platform || '-')}</td><td class="num">${c.project_count}</td><td class="num">${money(c.total_paid)}</td><td>${date(c.created_at)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Müşteri yok</td></tr>'}</table></div>`;
 }
 
@@ -470,7 +548,8 @@ async function viewCatalog(main) {
 
 async function viewPayments(main) {
   const [payments, invoices] = await Promise.all([GET('/payments'), GET('/invoices')]);
-  main.innerHTML = `<h1>Ödemeler & faturalar</h1>
+  const csv = (t, l) => (isAdmin() ? `<a class="btn" href="/api/export/${t}.csv">${l}</a>` : '');
+  main.innerHTML = `<div class="row"><h1>Ödemeler & faturalar</h1><span class="spacer"></span>${csv('payments', 'Ödemeler CSV')}${csv('invoices', 'Faturalar CSV')}</div>
   <div class="card table-wrap"><h2>Ödeme geçmişi</h2><table><tr><th>Referans</th><th>Müşteri / proje</th><th>Yöntem</th><th class="num">Tutar</th><th class="num">İade</th><th>Durum</th><th>Oluşturma</th><th>Ödeme</th><th></th></tr>
   ${payments.map((p) => `<tr><td>${esc(p.reference)}</td><td>${esc(p.customer_name || '-')}<div class="muted">${esc(p.project_title || '')}</div></td><td>${p.method === 'iban' ? 'Havale/EFT' : 'Kart (Stripe)'}</td>
     <td class="num">${money(p.amount, p.currency)}</td><td class="num">${p.refunded_amount ? money(p.refunded_amount, p.currency) : '-'}</td><td>${pill(p.status)}</td><td>${date(p.created_at)}</td><td>${date(p.paid_at)}</td>
@@ -493,7 +572,7 @@ async function viewPayments(main) {
 
 async function viewExpenses(main) {
   const [expenses, usage] = await Promise.all([GET('/expenses'), GET('/ai-usage')]);
-  main.innerHTML = `<h1>Giderler</h1>
+  main.innerHTML = `<div class="row"><h1>Giderler</h1><span class="spacer"></span>${isAdmin() ? '<a class="btn" href="/api/export/expenses.csv">CSV indir</a>' : ''}</div>
   <div class="card"><h2>Gider ekle</h2><form id="ef" class="form-grid">
     <label>Kategori<select name="category"><option value="hosting">Sunucu/hosting</option><option value="ads">Reklam</option><option value="software">Yazılım/abonelik</option><option value="ai">Yapay zeka (ek)</option><option value="other">Diğer</option></select></label>
     <label>Tutar<input name="amount" type="number" step="0.01" required></label><label>Para birimi<input name="currency" value="TRY"></label>
@@ -524,20 +603,65 @@ async function viewNotifications(main) {
 }
 
 async function viewSecurity(main) {
-  const [events, sessions] = await Promise.all([GET('/security/events'), GET('/security/sessions')]);
+  const [account, sessions, events] = await Promise.all([
+    GET('/me'), GET('/security/sessions'), isAdmin() ? GET(`/security/events${sessionStorage.getItem('suspOnly') ? '?suspicious=1' : ''}`) : Promise.resolve(null),
+  ]);
   main.innerHTML = `<h1>Güvenlik</h1>
+  <div class="card" id="twofa"><h2>İki adımlı doğrulama (2FA)</h2>
+    ${account.totp_enabled
+    ? `<p><span class="pill good">Açık</span> Girişte şifrenizden sonra doğrulama uygulamanızdaki kod istenir.</p>
+       <div class="row"><button id="newCodes">Yeni kurtarma kodları oluştur</button><button class="danger" id="disable2fa">2FA'yı kapat</button></div>`
+    : `<p><span class="pill warn">Kapalı</span> Hesabınızı şifre çalınmasına karşı korumak için Google Authenticator, Microsoft Authenticator veya Authy gibi bir uygulamayla iki adımlı doğrulamayı açın.</p>
+       <button class="primary" id="setup2fa">2FA kurulumunu başlat</button>`}
+    <div id="twofaBody"></div></div>
   <div class="card"><h2>Şifre değiştir</h2><form id="pw" class="form-grid">
     <label>Mevcut şifre<input type="password" name="current" required autocomplete="current-password"></label>
     <label>Yeni şifre<input type="password" name="next" required autocomplete="new-password"></label>
     <label>Yeni şifre (tekrar)<input type="password" name="next2" required autocomplete="new-password"></label>
-    <div><button class="primary">Şifreyi değiştir</button></div></form><p class="muted">Şifre değişince diğer tüm oturumlar kapatılır.</p></div>
-  <div class="card table-wrap"><div class="row"><h2>Aktif oturumlar</h2><span class="spacer"></span><button id="others">Diğer tüm oturumları kapat</button></div>
+    <div><button class="primary">Şifreyi değiştir</button></div></form><p class="muted">Şifre değişince diğer tüm oturumlarınız kapatılır.</p></div>
+  <div class="card table-wrap"><div class="row"><h2>Oturumlarım</h2><span class="spacer"></span><button id="others">Diğer tüm oturumları kapat</button></div>
     <table><tr><th>IP</th><th>Tarayıcı</th><th>Açılış</th><th>Son görülme</th><th>Durum</th><th></th></tr>
-    ${sessions.sessions.map((s) => `<tr><td>${esc(s.ip)}</td><td class="muted">${esc(s.user_agent)}</td><td>${date(s.created_at)}</td><td>${date(s.last_seen_at)}</td>
-      <td>${s.id === sessions.current ? '<span class="pill good">Bu oturum</span>' : s.revoked_at ? '<span class="pill">Kapalı</span>' : new Date(s.expires_at) < new Date() ? '<span class="pill">Süresi doldu</span>' : '<span class="pill warn">Açık</span>'}</td>
-      <td>${!s.revoked_at && s.id !== sessions.current && new Date(s.expires_at) > new Date() ? `<button class="danger" data-revoke="${s.id}">Sonlandır</button>` : ''}</td></tr>`).join('')}</table></div>
-  <div class="card table-wrap"><h2>Giriş / çıkış ve işlem kayıtları</h2><table><tr><th>Zaman</th><th>Olay</th><th>E-posta</th><th>IP</th><th>Tarayıcı</th><th>Not</th></tr>
-    ${events.map((e) => `<tr><td>${date(e.created_at)}</td><td>${pill(e.event)} ${e.suspicious ? '<span class="pill bad">Şüpheli</span>' : ''}</td><td>${esc(e.email || '')}</td><td>${esc(e.ip || '')}</td><td class="muted">${esc((e.user_agent || '').slice(0, 60))}</td><td>${esc(e.detail || '')}</td></tr>`).join('')}</table></div>`;
+    ${sessions.sessions.map((x) => `<tr><td>${esc(x.ip)}</td><td class="muted">${esc(x.user_agent)}</td><td>${date(x.created_at)}</td><td>${date(x.last_seen_at)}</td>
+      <td>${x.id === sessions.current ? '<span class="pill good">Bu oturum</span>' : x.revoked_at ? '<span class="pill">Kapalı</span>' : new Date(x.expires_at) < new Date() ? '<span class="pill">Süresi doldu</span>' : '<span class="pill warn">Açık</span>'}</td>
+      <td>${!x.revoked_at && x.id !== sessions.current && new Date(x.expires_at) > new Date() ? `<button class="danger" data-revoke="${x.id}">Sonlandır</button>` : ''}</td></tr>`).join('')}</table></div>
+  ${events ? `<div class="card table-wrap"><div class="row"><h2>Giriş / çıkış kayıtları</h2><span class="spacer"></span>
+      <label class="check" style="margin:0"><input type="checkbox" id="susp" ${sessionStorage.getItem('suspOnly') ? 'checked' : ''}>Sadece şüpheli olaylar</label>
+      <a class="btn" href="/api/backup">Veritabanı yedeği indir</a></div>
+    <table><tr><th>Zaman</th><th>Olay</th><th>E-posta</th><th>IP</th><th>Tarayıcı</th><th>Not</th></tr>
+    ${events.map((e) => `<tr><td>${date(e.created_at)}</td><td>${pill(e.event)} ${e.suspicious ? '<span class="pill bad">Şüpheli</span>' : ''}</td><td>${esc(e.email || '')}</td><td>${esc(e.ip || '')}</td><td class="muted">${esc((e.user_agent || '').slice(0, 60))}</td><td>${esc(e.detail || '')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Kayıt yok</td></tr>'}</table></div>` : ''}`;
+
+  const body = $('#twofaBody');
+  const showCodes = (codes) => {
+    body.innerHTML = `<h3>Kurtarma kodlarınız</h3><p class="muted">Bu kodlar yalnızca şimdi gösterilir. Güvenli bir yere kaydedin; telefonunuza erişemezseniz her biri bir kez giriş için kullanılabilir.</p>
+      <pre class="card" style="font-size:15px;letter-spacing:1px">${codes.map(esc).join('\n')}</pre><button id="done">Kaydettim</button>`;
+    $('#done').onclick = route;
+  };
+  $('#setup2fa')?.addEventListener('click', async () => {
+    const r = await act(() => POST('/security/2fa/setup'));
+    if (!r) return;
+    body.innerHTML = `<div class="row" style="align-items:flex-start;gap:24px;margin-top:12px"><img src="${r.qr}" alt="2FA QR kodu" width="200" height="200" style="background:#fff;padding:6px;border-radius:8px">
+      <div style="flex:1;min-width:220px"><ol><li>Doğrulama uygulamasında QR kodu okutun.</li><li>QR okutamıyorsanız bu anahtarı elle girin:<br><code style="word-break:break-all">${esc(r.secret)}</code></li><li>Uygulamada görünen 6 haneli kodu girin.</li></ol>
+      <form id="en" class="row"><input name="code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" style="max-width:160px" required><button class="primary">Etkinleştir</button></form></div></div>`;
+    $('#en').onsubmit = async (e) => {
+      e.preventDefault();
+      const ok = await act(() => POST('/security/2fa/enable', { code: e.target.code.value }), 'İki adımlı doğrulama açıldı');
+      if (ok) { me.totp_enabled = true; showCodes(ok.recovery_codes); }
+    };
+  });
+  $('#newCodes')?.addEventListener('click', async () => {
+    const code = prompt('Doğrulama uygulamanızdaki kodu girin:');
+    if (!code) return;
+    const r = await act(() => POST('/security/2fa/recovery-codes', { code }), 'Yeni kodlar oluşturuldu; eskiler geçersiz');
+    if (r) showCodes(r.recovery_codes);
+  });
+  $('#disable2fa')?.addEventListener('click', () => {
+    body.innerHTML = `<form id="dis" class="form-grid" style="margin-top:12px"><label>Şifreniz<input type="password" name="password" required autocomplete="current-password"></label>
+      <label>Doğrulama kodu<input name="code" required inputmode="numeric" autocomplete="one-time-code"></label><div><button class="danger">2FA'yı kapat</button></div></form>`;
+    $('#dis').onsubmit = (e) => {
+      e.preventDefault();
+      act(() => POST('/security/2fa/disable', Object.fromEntries(new FormData(e.target))), 'İki adımlı doğrulama kapatıldı').then((r) => r && route());
+    };
+  });
   $('#pw').onsubmit = (e) => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target));
@@ -545,14 +669,98 @@ async function viewSecurity(main) {
     act(() => POST('/security/password', d), 'Şifre değiştirildi').then((r) => r && route());
   };
   $('#others').onclick = () => act(() => POST('/security/sessions/revoke-others'), 'Diğer oturumlar kapatıldı').then(route);
+  $('#susp')?.addEventListener('change', (e) => { e.target.checked ? sessionStorage.setItem('suspOnly', '1') : sessionStorage.removeItem('suspOnly'); route(); });
   $$('[data-revoke]').forEach((b) => { b.onclick = () => act(() => DEL(`/security/sessions/${b.dataset.revoke}`), 'Oturum sonlandırıldı').then(route); });
+}
+
+// ---------------------------------------------------------------------------
+// Team, audit log, scheduled tasks (admins)
+// ---------------------------------------------------------------------------
+
+async function viewUsers(main) {
+  const { users, roles } = await GET('/users');
+  const roleOptions = (sel) => Object.entries(roles).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('');
+  main.innerHTML = `<h1>Ekip</h1>
+  <div class="card"><h2>Ekip üyesi ekle</h2><form id="nu" class="form-grid">
+    <label>Ad<input name="name" required></label><label>E-posta<input name="email" type="email" required></label>
+    <label>Geçici şifre<input name="password" type="password" required autocomplete="new-password"></label>
+    <label>Rol<select name="role">${roleOptions('operator')}</select></label><div><button class="primary">Ekle</button></div></form>
+    <p class="muted"><b>Yönetici:</b> her şey. <b>Operatör:</b> konuşmalar, ilanlar, projeler, müşteriler, ürünler; ödeme/iade, ayar ve ekip işlemleri yapamaz. <b>İzleyici:</b> yalnızca görüntüler.</p></div>
+  <div class="card table-wrap"><table><tr><th>Kullanıcı</th><th>Rol</th><th>2FA</th><th>Bildirim</th><th>Son giriş</th><th>Durum</th><th></th></tr>
+  ${users.map((u) => `<tr><td><b>${esc(u.name)}</b><div class="muted">${esc(u.email)}</div></td>
+    <td><select data-role="${u.id}" style="width:auto">${roleOptions(u.role)}</select></td>
+    <td>${u.totp_enabled ? '<span class="pill good">Açık</span>' : '<span class="pill warn">Kapalı</span>'}</td>
+    <td><input type="checkbox" data-notify="${u.id}" ${u.notify ? 'checked' : ''} title="E-posta bildirimleri"></td>
+    <td>${date(u.last_login_at)}</td><td>${u.active ? '<span class="pill good">Aktif</span>' : '<span class="pill">Pasif</span>'}</td>
+    <td><div class="row">${u.id !== me.id ? `<button data-active="${u.id}" data-to="${u.active ? 0 : 1}">${u.active ? 'Pasif yap' : 'Aktif yap'}</button>` : ''}
+      <button data-pw="${u.id}">Şifre ata</button>${u.totp_enabled && u.id !== me.id ? `<button class="danger" data-2fa="${u.id}">2FA sıfırla</button>` : ''}</div></td></tr>`).join('')}</table></div>`;
+  $('#nu').onsubmit = (e) => { e.preventDefault(); act(() => POST('/users', Object.fromEntries(new FormData(e.target))), 'Kullanıcı eklendi').then((r) => r && route()); };
+  $$('[data-role]').forEach((el) => { el.onchange = () => act(() => PUT(`/users/${el.dataset.role}`, { role: el.value }), 'Rol güncellendi').then(route); });
+  $$('[data-notify]').forEach((el) => { el.onchange = () => act(() => PUT(`/users/${el.dataset.notify}`, { notify: el.checked }), 'Kaydedildi'); });
+  $$('[data-active]').forEach((b) => { b.onclick = () => act(() => PUT(`/users/${b.dataset.active}`, { active: b.dataset.to === '1' }), 'Güncellendi').then(route); });
+  $$('[data-pw]').forEach((b) => { b.onclick = () => {
+    const pw = prompt('Yeni geçici şifre (en az 10 karakter, harf + rakam):');
+    if (pw) act(() => POST(`/users/${b.dataset.pw}/password`, { password: pw }), 'Şifre atandı; kullanıcının oturumları kapatıldı');
+  }; });
+  $$('[data-2fa]').forEach((b) => { b.onclick = () => confirm('Bu kullanıcının 2FA kurulumu silinsin mi? (Telefonunu kaybettiyse)') && act(() => POST(`/users/${b.dataset['2fa']}/reset-2fa`), '2FA sıfırlandı').then(route); });
+}
+
+async function viewAudit(main) {
+  const q = sessionStorage.getItem('auditQ') || '';
+  const rows = await GET(`/audit${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  main.innerHTML = `<div class="row"><h1>Denetim kaydı</h1><span class="spacer"></span>
+    <form id="qf" class="row"><input name="q" value="${esc(q)}" placeholder="İşlem, kullanıcı veya ayrıntı ara" style="width:260px"><button>Ara</button></form></div>
+    <p class="muted">Panelden yapılan her değişiklik (kim, ne zaman, hangi IP'den, sonuç) burada tutulur. Şifre, kod ve IBAN gibi alanlar maskelenir.</p>
+    <div class="card table-wrap"><table><tr><th>Zaman</th><th>Kullanıcı</th><th>İşlem</th><th>Sonuç</th><th>Ayrıntı</th><th>IP</th></tr>
+    ${rows.map((r) => `<tr><td>${date(r.created_at)}</td><td>${esc(r.email || '-')}</td><td><code>${esc(r.action)}</code></td>
+      <td><span class="pill ${r.status < 400 ? 'good' : r.status === 403 ? 'bad' : 'warn'}">${r.status}</span></td>
+      <td class="muted" style="max-width:340px;word-break:break-word">${esc(r.detail || '')}</td><td>${esc(r.ip || '')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Kayıt yok</td></tr>'}</table></div>`;
+  $('#qf').onsubmit = (e) => { e.preventDefault(); sessionStorage.setItem('auditQ', e.target.q.value); route(); };
+}
+
+async function viewJobs(main) {
+  const { jobs, runs } = await GET('/jobs');
+  const fmtNext = (j) => (j.enabled ? date(j.next_run_at) : '<span class="muted">Kapalı</span>');
+  main.innerHTML = `<h1>Zamanlanmış görevler</h1>
+    <p class="muted">Arka planda otomatik çalışan işler. Saatler Ayarlar → İşletme bölümündeki saat dilimine göredir. Ayrıntılı eşikler Ayarlar → Otomasyon bölümündedir.</p>
+    <div class="card table-wrap"><table><tr><th>Görev</th><th>Zamanlama</th><th>Son çalışma</th><th>Sonraki</th><th>Açık</th><th></th></tr>
+    ${jobs.map((j) => `<tr><td><b>${esc(j.label)}</b><div class="muted">${esc(j.description)}</div></td>
+      <td>${esc(j.schedule_text)}<div><a href="#" data-edit="${j.name}">Değiştir</a></div></td>
+      <td>${j.last_run_at ? `${date(j.last_run_at)} ${pill(j.last_status)}<div class="muted">${esc(j.last_message || '')}</div>` : '<span class="muted">Henüz çalışmadı</span>'}</td>
+      <td>${fmtNext(j)}</td>
+      <td><input type="checkbox" data-toggle="${j.name}" ${j.enabled ? 'checked' : ''}></td>
+      <td><button data-run="${j.name}" ${j.running ? 'disabled' : ''}>${j.running ? 'Çalışıyor…' : 'Şimdi çalıştır'}</button></td></tr>
+      <tr id="edit-${j.name}" hidden><td colspan="6"><form class="row" data-form="${j.name}">
+        <select name="type" style="width:auto">${[['interval', 'Aralıklı'], ['daily', 'Her gün'], ['monthly', 'Her ay']].map(([k, v]) => `<option value="${k}" ${j.schedule.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <label class="check" style="margin:0">Dakika<input name="minutes" type="number" min="1" value="${j.schedule.minutes || 60}" style="width:90px"></label>
+        <label class="check" style="margin:0">Gün<input name="day" type="number" min="1" max="28" value="${j.schedule.day || 1}" style="width:70px"></label>
+        <label class="check" style="margin:0">Saat<input name="time" type="time" value="${j.schedule.time || '08:00'}" style="width:auto"></label>
+        <button class="primary">Kaydet</button></form></td></tr>`).join('')}</table></div>
+    <div class="card table-wrap"><h2>Çalışma geçmişi</h2><table><tr><th>Başlangıç</th><th>Görev</th><th>Tetikleyen</th><th>Sonuç</th><th>Mesaj</th><th class="num">Süre</th></tr>
+    ${runs.map((r) => `<tr><td>${date(r.started_at)}</td><td>${esc(jobs.find((j) => j.name === r.job)?.label || r.job)}</td><td>${pill(r.trigger)}</td><td>${pill(r.status)}</td>
+      <td class="muted">${esc(r.message || '')}</td><td class="num">${r.finished_at ? `${((new Date(r.finished_at) - new Date(r.started_at)) / 1000).toFixed(1)} sn` : '-'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Henüz çalışma yok</td></tr>'}</table></div>`;
+  $$('[data-toggle]').forEach((el) => { el.onchange = () => act(() => PUT(`/jobs/${el.dataset.toggle}`, { enabled: el.checked }), el.checked ? 'Görev açıldı' : 'Görev kapatıldı').then(route); });
+  $$('[data-run]').forEach((b) => { b.onclick = async () => {
+    b.disabled = true; b.textContent = 'Çalışıyor…';
+    const r = await act(() => POST(`/jobs/${b.dataset.run}/run`));
+    if (r) toast(`${r.status === 'ok' ? 'Tamamlandı' : 'Hata'}: ${r.message}`, r.status !== 'ok');
+    route();
+  }; });
+  $$('[data-edit]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); const row = $(`#edit-${a.dataset.edit}`); row.hidden = !row.hidden; }; });
+  $$('[data-form]').forEach((f) => { f.onsubmit = (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f));
+    const schedule = d.type === 'interval' ? { type: 'interval', minutes: Number(d.minutes) }
+      : d.type === 'daily' ? { type: 'daily', time: d.time } : { type: 'monthly', day: Number(d.day), time: d.time };
+    act(() => PUT(`/jobs/${f.dataset.form}`, { schedule }), 'Zamanlama güncellendi').then((r) => r && route());
+  }; });
 }
 
 const SETTINGS_FORM = {
   business: ['İşletme & ödeme bilgileri', [
     ['name', 'İşletme adı'], ['owner_name', 'Yetkili adı'], ['admin_email', 'Admin bildirim e-postası', 'email'],
     ['base_currency', 'Ana para birimi'], ['tax_rate', 'KDV oranı (%)', 'number'], ['fx_rates', 'Döviz kurları (JSON, 1 birim = ? ana para)', 'json'],
-    ['iban', 'IBAN'], ['iban_holder', 'IBAN sahibi'], ['bank_name', 'Banka'],
+    ['iban', 'IBAN'], ['iban_holder', 'IBAN sahibi'], ['bank_name', 'Banka'], ['timezone', 'Saat dilimi (ör. Europe/Istanbul)'],
   ]],
   ai: ['Yapay zeka', [
     ['enabled', 'Yapay zeka aktif', 'bool'], ['auto_build', 'İş alınınca otomatik geliştirmeye başla', 'bool'],
@@ -570,7 +778,19 @@ const SETTINGS_FORM = {
     ['provider', 'Ödeme yöntemi', 'provider'], ['send_iban_automatically', 'Müşteri onaylayınca ödeme bilgisini otomatik gönder', 'bool'], ['payment_due_days', 'Ödeme süresi (gün)', 'number'],
   ]],
   security: ['Güvenlik', [
-    ['max_failed_logins', '15 dakikada izin verilen hatalı giriş', 'number'], ['alert_on_new_ip', 'Yeni IP adresinden girişte e-posta uyarısı', 'bool'],
+    ['require_2fa_for_admins', 'Yöneticiler için iki adımlı doğrulama zorunlu', 'bool'], ['alert_on_new_ip', 'Yeni IP adresinden girişte e-posta uyarısı', 'bool'],
+    ['max_failed_logins', 'Hesap başına 15 dakikada izin verilen hatalı giriş', 'number'], ['max_failed_per_ip', 'IP başına 15 dakikada izin verilen hatalı giriş', 'number'],
+    ['idle_timeout_minutes', 'Hareketsizlikte oturumu kapat (dakika, 0 = kapalı)', 'number'],
+    ['allowed_ips', 'Panele erişebilecek IP adresleri (virgülle, 192.168.1.* gibi; boş = herkes)', 'list'],
+    ['large_refund_amount', 'Bu tutarın üzerindeki iadelerde güvenlik uyarısı (ana para)', 'number'],
+    ['max_refunds_per_day', 'Günde bundan fazla iadede uyarı', 'number'], ['audit_retention_days', 'Denetim/giriş kayıtlarını sakla (gün)', 'number'],
+  ]],
+  automation: ['Otomasyon (zamanlanmış görev eşikleri)', [
+    ['payment_reminder_days', 'Ödeme hatırlatma sıklığı (gün)', 'number'], ['payment_max_reminders', 'En fazla ödeme hatırlatması', 'number'],
+    ['followup_after_hours', 'Cevapsız müşteriye takip mesajı (saat sonra)', 'number'], ['followup_max', 'En fazla takip mesajı', 'number'],
+    ['escalation_renotify_minutes', 'Yanıtlanmayan aktarılmış konuşmayı tekrar bildir (dakika)', 'number'],
+    ['token_budget_warn_percent', 'Yapay zeka bütçesi uyarı eşiği (%)', 'number'], ['backup_keep', 'Saklanacak günlük yedek sayısı', 'number'],
+    ['notification_retention_days', 'Okunmuş bildirimleri sakla (gün)', 'number'],
   ]],
 };
 
@@ -619,6 +839,9 @@ const VIEWS = {
   notifications: viewNotifications,
   security: viewSecurity,
   settings: viewSettings,
+  users: viewUsers,
+  audit: viewAudit,
+  jobs: viewJobs,
 };
 
 boot();

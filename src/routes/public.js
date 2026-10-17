@@ -10,6 +10,7 @@ import { verify } from '../services/secret.js';
 import { catalog, findOrCreateConversation, handleIncoming } from '../services/sales.js';
 import { getSection } from '../services/settings.js';
 import { parseWebhook, verifySignature } from '../services/whatsapp.js';
+import { rateLimit } from '../services/ratelimit.js';
 import { asyncRoute } from './util.js';
 
 export const router = express.Router();
@@ -87,7 +88,7 @@ router.get('/api/chat/info', (_req, res) => {
   });
 });
 
-router.post('/api/chat/start', (req, res) => {
+router.post('/api/chat/start', rateLimit({ name: 'chat-start', windowMs: 3_600_000, max: 20 }), (req, res) => {
   const token = crypto.randomBytes(18).toString('base64url');
   const name = String(req.body?.name || '').slice(0, 80);
   const email = String(req.body?.email || '').slice(0, 120) || null;
@@ -109,7 +110,7 @@ router.get('/api/chat/:token/messages', (req, res) => {
   });
 });
 
-router.post('/api/chat/:token/messages', asyncRoute(async (req, res) => {
+router.post('/api/chat/:token/messages', rateLimit({ name: 'chat-msg', windowMs: 60_000, max: 15, message: 'Çok hızlı mesaj gönderiyorsunuz, lütfen biraz bekleyin.' }), asyncRoute(async (req, res) => {
   const conv = webConversation(req.params.token);
   if (!conv) return res.status(404).json({ error: 'Sohbet bulunamadı' });
   const text = String(req.body?.text || '').trim().slice(0, 4000);

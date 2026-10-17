@@ -1,7 +1,8 @@
 import { createApp } from './app.js';
 import { config } from './config.js';
 import { get, openDb } from './db.js';
-import { startScheduler } from './services/scanner.js';
+import './services/jobs.js';
+import { startScheduler } from './services/scheduler.js';
 import { createUser } from './services/security.js';
 
 openDb();

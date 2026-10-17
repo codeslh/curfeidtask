@@ -4,7 +4,7 @@ import { all, get, insert, run, tx, update } from '../db.js';
 import { notifyAdmin } from './notify.js';
 import { logEvent } from './projects.js';
 import { sendToCustomer } from './sales.js';
-import { getSection } from './settings.js';
+import { getSection, toBase } from './settings.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -162,6 +162,11 @@ export async function refund(paymentId, amount, reason, userId) {
     createInvoice(payment, -amount, 'refund');
     if (payment.project_id) logEvent(payment.project_id, 'refund', `İade: ${amount} ${payment.currency} (${reason || '-'})`);
   });
+  const { large_refund_amount } = getSection('security');
+  if (large_refund_amount > 0 && toBase(amount, payment.currency) >= large_refund_amount) {
+    await notifyAdmin('security', `Yüksek tutarlı iade: ${amount} ${payment.currency}`,
+      `Ödeme ${payment.reference} için ${amount} ${payment.currency} iade yapıldı (eşik: ${large_refund_amount}).\nSebep: ${reason || '-'}\nBu işlemi siz yapmadıysanız hemen şifrenizi değiştirin.`, '/payments');
+  }
   await notifyAdmin('refund', `İade yapıldı: ${amount} ${payment.currency}`,
     `Ödeme ${payment.reference}\nSebep: ${reason || '-'}${payment.method === 'iban' ? '\nHavale ile alınan ödeme: iadeyi bankanızdan manuel göndermeyi unutmayın.' : ''}`, '/payments');
   return get('SELECT * FROM payments WHERE id = ?', paymentId);

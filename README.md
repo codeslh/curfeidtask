@@ -17,7 +17,35 @@ Freelancerlar için yapay zeka destekli CRM + otomatik yazılım üretim sistemi
 | Proje üretimi | Plan → kod üretimi (Claude), sürüm geçmişi, imzalı önizleme linkleri, admin düzeltme döngüsü, demo yayını (`/demo/...`), müşteri onayı / değişiklik talebi |
 | Ödeme | IBAN ile otomatik ödeme talebi (referans kodlu), isteğe bağlı Stripe kart ödemesi + webhook, ödeme geçmişi, kısmi/tam iade, satış ve iade faturaları (PDF) |
 | CRM / raporlar | Aylık net/brüt ciro, gider (yapay zeka maliyeti otomatik), kâr, yeni müşteri, dönüşüm, 12 aylık grafik, ürün performansı, yapay zeka durum değerlendirmesi ve çözüm önerileri, aylık PDF özet |
-| Güvenlik | Giriş/çıkış kayıtları, aktif oturumlar ve oturum sonlandırma, şifre değiştirme (diğer oturumlar kapanır), hatalı denemede kilit + e-posta, yeni IP uyarısı, IBAN/admin e-posta değişikliği uyarısı, iade kaydı |
+| Güvenlik | İki adımlı doğrulama (QR + kurtarma kodları), roller (Yönetici / Operatör / İzleyici), denetim kaydı, şifremi unuttum, oturum yönetimi, IP izin listesi, hız sınırları, şüpheli işlem uyarıları, yedek ve CSV — ayrıntılar aşağıda |
+| Zamanlanmış görevler | 10 otomatik görev: tarama, takip mesajı, ödeme hatırlatma, günlük özet, aylık PDF rapor, yedek, güvenlik taraması… — ayrıntılar aşağıda |
+
+## Güvenlik
+
+- **İki adımlı doğrulama (2FA):** Güvenlik sayfasından QR kodu Google/Microsoft Authenticator veya Authy ile okutun. Girişte şifreden sonra 6 haneli kod istenir; kullanılmış kod tekrar kabul edilmez. 8 adet tek kullanımlık kurtarma kodu verilir. Ayarlar'dan yöneticiler için 2FA zorunlu yapılabilir.
+- **Ekip ve roller:** *Yönetici* her şeyi yapar. *Operatör* konuşma, ilan, proje, müşteri ve ürünlerle çalışır; ödeme onayı, iade, ayar, ekip, yedek işlemlerini yapamaz. *İzleyici* yalnızca görüntüler. Yetkiler sunucu tarafında kontrol edilir; menüde yalnızca izin verilen sayfalar görünür.
+- **Denetim kaydı:** Panelden yapılan her değişiklik kim, ne zaman, hangi IP'den ve sonucuyla kaydedilir; şifre, kod, token ve IBAN alanları maskelenir.
+- **Giriş koruması:** Hesap başına ve IP başına hatalı deneme sınırı (aşılınca 15 dk kilit + e-posta), giriş uç noktalarında hız sınırı, yeni IP'den girişte uyarı, hareketsiz oturumun otomatik kapanması, isteğe bağlı IP izin listesi.
+- **Şifre:** Şifremi unuttum (30 dk geçerli, tek kullanımlık e-posta bağlantısı; hesap var mı yok mu belli etmez), şifre değişince diğer oturumların kapanması, yöneticinin ekip üyesine şifre ataması veya 2FA'sını sıfırlaması.
+- **Şüpheli işlem uyarıları:** IBAN veya admin e-postası değişikliği, yüksek tutarlı iade, günde çok sayıda iade, bir hesabın aynı anda çok sayıda IP'den kullanılması, 2FA'nın kapatılması, kurtarma koduyla giriş, yedek indirilmesi.
+- **Diğer:** Sıkı güvenlik başlıkları (CSP, HSTS, nosniff), JSON dışı istekleri reddeden CSRF koruması, müşteri sohbetinde spam sınırı, panelden veritabanı yedeği ve CSV dışa aktarma (Excel formül enjeksiyonuna karşı korumalı).
+
+## Zamanlanmış görevler
+
+"Zamanlanmış görevler" sayfasından her görev açılıp kapatılabilir, zamanı (aralıklı / her gün / her ay) değiştirilebilir, elle çalıştırılabilir ve çalışma geçmişi görülebilir. Saatler Ayarlar'daki saat dilimine göredir (varsayılan Europe/Istanbul). Eşikler Ayarlar → Otomasyon bölümündedir. Başarısız olan her görev admine bildirilir.
+
+| Görev | Varsayılan | Ne yapar |
+|---|---|---|
+| Freelancer platform taraması | 30 dk (`SCANNER_ENABLED=1` ile açık) | İlanları tarar, müşteriye yazar veya admine bildirir |
+| Cevapsız müşteriye takip | Saatlik | 24 saat cevap vermeyen müşteriye yapay zeka nazik bir takip mesajı yazar |
+| Ödeme hatırlatmaları | Her gün 10:00 | Bekleyen ödemelere IBAN bilgisiyle hatırlatma; vadesi geçenleri admine bildirir |
+| Bekleyen konuşma uyarısı | 30 dk | Admine aktarılıp yanıtlanmayan konuşmalar için tekrar uyarır |
+| Günlük özet | Her gün 08:30 | Dünkü satış, konuşma, ilan, ödeme ve güvenlik olaylarını e-postayla özetler |
+| Aylık rapor | Her ayın 1'i 09:00 | Geçen ayın PDF raporunu yapay zeka yorumuyla e-postaya ekler |
+| Yapay zeka bütçe takibi | Saatlik | Token bütçesinin %80'i ve %100'ü aşılınca ayda bir kez uyarır |
+| Güvenlik taraması | 30 dk | Olağan dışı iade, çoklu IP, azalan kurtarma kodu, sık yedek indirme |
+| Veritabanı yedeği | Her gün 03:00 | `data/backups` içine yedek alır, son 14 taneyi tutar |
+| Temizlik | Her gün 04:00 | Süresi dolmuş oturum/doğrulama kayıtlarını, eski bildirim ve logları siler |
 
 ## Kurulum
 
@@ -41,7 +69,7 @@ Ardından **Ayarlar** sayfasından IBAN, admin e-postası, yapay zeka ve tarama 
 npm test
 ```
 
-Testler demo modunda tüm akışı uçtan uca dener: sohbet → anlaşma → üretim → revizyon → demo → müşteri onayı → IBAN → ödeme → fatura → iade, admine aktarma, giriş kilidi, tarama kapsamı.
+Testler demo modunda tüm akışı uçtan uca dener: sohbet → anlaşma → üretim → revizyon → demo → müşteri onayı → IBAN → ödeme → fatura → iade, admine aktarma, tarama kapsamı; 2FA, roller, denetim kaydı, oturum zaman aşımı, IP listesi, şifre sıfırlama, hız sınırı; tüm zamanlanmış görevler ve saat dilimi hesapları.
 
 ## Entegrasyonlar
 
@@ -68,7 +96,8 @@ src/
   routes/      auth.js, admin.js (panel API), public.js (webhook, sohbet, demo)
   services/    ai.js (Claude), sales.js (satış asistanı), projects.js (üretim/demo),
                payments.js, reports.js (istatistik, PDF), scanner.js, security.js,
+               totp.js (2FA), ratelimit.js, scheduler.js + jobs.js (zamanlanmış görevler),
                notify.js (e-posta), whatsapp.js, settings.js, platforms/
-public/        index.html + app.js (admin paneli), chat.html (müşteri sohbeti)
+public/        index.html + app.js (admin paneli), chat.html + chat.js (müşteri sohbeti)
 test/          uçtan uca testler
 ```

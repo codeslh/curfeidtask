@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
-import { insert, update } from '../db.js';
+import { all, insert, update } from '../db.js';
 import { getSection } from './settings.js';
 
 let transport;
@@ -29,12 +29,19 @@ export async function sendMail({ to, subject, text, attachments }) {
  * Record an admin notification (always visible in the panel) and e-mail it.
  * Never throws: a mail failure must not break the flow that triggered it.
  */
-export async function notifyAdmin(type, subject, body, link) {
+export function recipients(type) {
+  // Security alerts only go to admins; operational ones to every team member who opted in.
+  const users = all(`SELECT email FROM users WHERE active = 1 AND notify = 1 ${type === 'security' ? "AND role = 'admin'" : ''}`);
+  return [...new Set([getSection('business').admin_email, ...users.map((u) => u.email)].filter(Boolean))];
+}
+
+export async function notifyAdmin(type, subject, body, link, attachments) {
   const id = insert('notifications', { type, subject, body, link });
   const fullLink = link ? `${config.publicUrl}/#${link}` : '';
   try {
     const sent = await sendMail({
-      to: getSection('business').admin_email,
+      to: recipients(type).join(', '),
+      attachments,
       subject: `[${getSection('business').name}] ${subject}`,
       text: `${body}${fullLink ? `\n\nPanelde aç: ${fullLink}` : ''}`,
     });

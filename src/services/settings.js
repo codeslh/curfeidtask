@@ -12,6 +12,7 @@ export const DEFAULTS = {
     iban: '',
     iban_holder: '',
     bank_name: '',
+    timezone: 'Europe/Istanbul',              // used by daily/monthly scheduled tasks
   },
   ai: {
     enabled: true,
@@ -39,7 +40,24 @@ export const DEFAULTS = {
   },
   security: {
     max_failed_logins: 5,                     // per email in 15 minutes -> alert + lockout
+    max_failed_per_ip: 20,                    // any account, per IP in 15 minutes -> IP blocked + alert
     alert_on_new_ip: true,
+    require_2fa_for_admins: false,            // admins without 2FA are sent to the setup screen
+    idle_timeout_minutes: 120,                // 0 = only the absolute session lifetime applies
+    allowed_ips: [],                          // empty = any IP may use the panel
+    large_refund_amount: 5000,                // base currency; larger refunds raise a security alert
+    max_refunds_per_day: 3,                   // more refunds than this in 24h raise an alert
+    audit_retention_days: 365,
+  },
+  automation: {
+    payment_reminder_days: 2,                 // remind the customer every N days while unpaid
+    payment_max_reminders: 3,
+    followup_after_hours: 24,                 // AI follows up a silent customer after N hours
+    followup_max: 1,
+    escalation_renotify_minutes: 120,         // re-alert the admin about untouched escalations
+    token_budget_warn_percent: 80,
+    backup_keep: 14,                          // daily backups to keep
+    notification_retention_days: 90,
   },
 };
 

@@ -10,13 +10,18 @@ import * as security from '../services/security.js';
 import { PLATFORMS } from '../services/platforms/index.js';
 import { getSettings, saveSection } from '../services/settings.js';
 import { monthTokenUsage } from '../services/ai.js';
-import { asyncRoute, clientInfo, requireAuth } from './util.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getDb } from '../db.js';
+import { dataPath } from '../config.js';
+import * as scheduler from '../services/scheduler.js';
+import { asyncRoute, auditTrail, authorize, clientInfo, requireAuth } from './util.js';
 
 export const router = express.Router();
-router.use(requireAuth);
+router.use(requireAuth, authorize, auditTrail);
 
 const id = (req) => Number(req.params.id);
-const bad = (res, err) => res.status(400).json({ error: err.message });
+const bad = (res, err) => res.status(err.status && err.status < 500 ? err.status : 400).json({ error: err.message });
 
 // --- Dashboard & reports ------------------------------------------------------
 
@@ -262,7 +267,11 @@ router.get('/ai-usage', (_req, res) => res.json(all(`SELECT date(created_at) AS 
 
 // --- Security ---------------------------------------------------------------------------------
 
-router.get('/security/events', (_req, res) => res.json(security.loginEvents()));
+router.get('/me', (req, res) => res.json({
+  ...security.publicUser(get('SELECT * FROM users WHERE id = ?', req.session.user_id)),
+  roles: security.ROLES,
+}));
+router.get('/security/events', (req, res) => res.json(security.loginEvents({ suspicious: req.query.suspicious === '1' })));
 router.get('/security/sessions', (req, res) => res.json({
   current: req.session.id.slice(0, 12),
   sessions: security.listSessions(req.session.user_id),
@@ -282,6 +291,80 @@ router.post('/security/password', asyncRoute(async (req, res) => {
     res.json({ ok: true });
   } catch (err) { bad(res, err); }
 }));
+
+// --- Two-factor authentication (own account) ------------------------------------------
+
+const own = (fn) => asyncRoute(async (req, res) => {
+  const { ip, userAgent } = clientInfo(req);
+  try { res.json((await fn(req, ip, userAgent)) ?? { ok: true }); } catch (err) { bad(res, err); }
+});
+router.post('/security/2fa/setup', own((req) => security.beginTotpSetup(req.session.user_id)));
+router.post('/security/2fa/enable', own((req, ip, ua) => security.enableTotp(req.session, req.body?.code, ip, ua)));
+router.post('/security/2fa/disable', own((req, ip, ua) => security.disableTotp(req.session, req.body?.password, req.body?.code, ip, ua)));
+router.post('/security/2fa/recovery-codes', own((req, ip, ua) => security.regenerateRecoveryCodes(req.session, req.body?.code, ip, ua)));
+
+// --- Team (admins only, enforced by authorize) ------------------------------------------
+
+router.get('/users', (_req, res) => res.json({ users: security.listUsers(), roles: security.ROLES }));
+router.post('/users', own(async (req) => ({ id: await security.createUser(req.body || {}) })));
+router.put('/users/:id', own((req, ip) => security.updateUser(req.session, id(req), req.body || {}, ip)));
+router.post('/users/:id/password', own((req, ip) => security.adminResetPassword(req.session, id(req), req.body?.password, ip)));
+router.post('/users/:id/reset-2fa', own((req, ip) => security.resetUserTotp(req.session, id(req), ip)));
+
+// --- Audit log ------------------------------------------------------------------------------
+
+router.get('/audit', (req, res) => res.json(security.auditLog({ q: req.query.q, userId: req.query.user_id ? Number(req.query.user_id) : undefined })));
+
+// --- Scheduled tasks ------------------------------------------------------------------------
+
+router.get('/jobs', (_req, res) => res.json({ jobs: scheduler.listJobs(), runs: scheduler.jobRuns(null, 100) }));
+router.get('/jobs/:name/runs', (req, res) => res.json(scheduler.jobRuns(req.params.name)));
+router.put('/jobs/:name', (req, res) => {
+  try { scheduler.updateJob(req.params.name, req.body || {}); res.json({ ok: true }); } catch (err) { bad(res, err); }
+});
+router.post('/jobs/:name/run', asyncRoute(async (req, res) => {
+  try { res.json(await scheduler.runJob(req.params.name, 'manual')); } catch (err) { bad(res, err); }
+}));
+
+// --- Backup & CSV export ----------------------------------------------------------------------
+
+router.get('/backup', asyncRoute(async (req, res) => {
+  const dir = dataPath('tmp');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `backup-${Date.now()}.db`);
+  getDb().exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+  const { ip } = clientInfo(req);
+  await notifyAdmin('security', 'Veritabanı yedeği indirildi', `Kullanıcı: ${req.session.email}\nIP: ${ip}`, '/audit');
+  res.download(file, `yedek-${new Date().toISOString().slice(0, 10)}.db`, () => fs.rm(file, { force: true }, () => {}));
+}));
+
+const EXPORTS = {
+  payments: `SELECT pay.id, pay.reference, c.name AS customer, p.title AS project, pay.method, pay.amount, pay.refunded_amount, pay.currency, pay.status, pay.created_at, pay.paid_at
+             FROM payments pay LEFT JOIN customers c ON c.id = pay.customer_id LEFT JOIN projects p ON p.id = pay.project_id ORDER BY pay.id`,
+  invoices: `SELECT i.number, i.kind, c.name AS customer, i.subtotal, i.tax_rate, i.tax_amount, i.total, i.currency, i.issued_at
+             FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id ORDER BY i.id`,
+  customers: 'SELECT id, name, email, phone, platform, created_at FROM customers ORDER BY id',
+  expenses: 'SELECT id, category, description, amount, currency, created_at FROM expenses ORDER BY id',
+};
+
+function toCsv(rows) {
+  if (!rows.length) return '';
+  const cell = (v) => {
+    let s = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`; // neutralise spreadsheet formulas
+    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const keys = Object.keys(rows[0]);
+  return [keys.join(';'), ...rows.map((r) => keys.map((k) => cell(r[k])).join(';'))].join('\r\n');
+}
+
+router.get('/export/:type.csv', (req, res) => {
+  const sql = EXPORTS[req.params.type];
+  if (!sql) return res.sendStatus(404);
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="${req.params.type}-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(`\ufeff${toCsv(all(sql))}`); // BOM so Excel reads UTF-8 (Turkish characters)
+});
 
 // --- Settings -----------------------------------------------------------------------------------
 

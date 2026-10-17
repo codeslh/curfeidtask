@@ -82,7 +82,7 @@ function systemPrompt(conv) {
   return lines.join('\n');
 }
 
-function historyMessages(convId) {
+function historyMessages(convId, { keepTrailingAssistant = false } = {}) {
   const rows = all('SELECT sender, body FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 40', convId).reverse();
   const msgs = [];
   for (const r of rows) {
@@ -95,7 +95,7 @@ function historyMessages(convId) {
   }
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
   // Prefill is not supported: the conversation must end on the customer's turn.
-  while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop();
+  while (!keepTrailingAssistant && msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop();
   return msgs;
 }
 
@@ -139,6 +139,33 @@ async function salesReply(conv, lastText) {
   const messages = historyMessages(conv.id);
   if (!messages.length) messages.push({ role: 'user', content: lastText });
   return callClaude({ purpose: 'sales', system: systemPrompt(conv), messages, schema: SALES_SCHEMA, maxTokens: 4000, effort: 'medium' });
+}
+
+/** Short, polite nudge for a customer who went quiet. Returns null when the AI is unavailable. */
+export async function aiFollowup(conv) {
+  try {
+    if (config.aiMock) {
+      mockGuard('followup');
+      return 'Merhaba, size dönüş yapmak istedik. Aklınıza takılan bir soru varsa yardımcı olmaktan memnuniyet duyarız. 😊';
+    }
+    const messages = historyMessages(conv.id, { keepTrailingAssistant: true });
+    messages.push({ role: 'user', content: '[Sistem notu: Müşteri bir süredir cevap vermedi. Ona kısa, baskıcı olmayan bir takip mesajı yaz. Sadece mesaj metnini döndür.]' });
+    const system = systemPrompt(conv);
+    return await callClaude({ purpose: 'followup', system, messages: mergeUserTurns(messages), effort: 'low', maxTokens: 1500 });
+  } catch (err) {
+    if (err instanceof AiUnavailableError) return null;
+    throw err;
+  }
+}
+
+function mergeUserTurns(msgs) {
+  const out = [];
+  for (const m of msgs) {
+    const last = out[out.length - 1];
+    if (last && last.role === m.role) last.content += `\n${m.content}`;
+    else out.push({ ...m });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
