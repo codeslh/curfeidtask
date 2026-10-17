@@ -7,6 +7,30 @@ const money = (n, cur = '') => `${Number(n || 0).toLocaleString('tr-TR', { minim
 const date = (s) => (s ? new Date(s.includes('T') ? s : `${s.replace(' ', 'T')}Z`).toLocaleString('tr-TR') : '-');
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const icon = (name, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="/assets/icons.svg#${name}"/></svg>`;
+const initials = (name = '') => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr') || '?';
+const avatar = (name, cls = '') => {
+  const hue = [...String(name)].reduce((a, c) => a + c.charCodeAt(0), 0) % 5 + 1;
+  return `<span class="avatar ${cls} c${hue}">${esc(initials(name))}</span>`;
+};
+const empty = (title, text = '', ic = 'inbox') => `<div class="empty">${icon(ic)}<b>${esc(title)}</b>${esc(text)}</div>`;
+
+// --- Theme (light / dark / system), remembered per browser ----------------------
+const THEMES = ['system', 'light', 'dark'];
+function getTheme() { try { return localStorage.getItem('theme') || 'system'; } catch { return 'system'; } }
+function applyTheme(t) {
+  if (t === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
+}
+applyTheme(getTheme());
+function cycleTheme() {
+  const next = THEMES[(THEMES.indexOf(getTheme()) + 1) % THEMES.length];
+  try { localStorage.setItem('theme', next); } catch { /* private mode */ }
+  applyTheme(next);
+  return next;
+}
+const themeIcon = () => ({ system: 'monitor', light: 'sun', dark: 'moon' }[getTheme()]);
+const THEME_LABEL = { system: 'Sistem teması', light: 'Açık tema', dark: 'Koyu tema' };
 
 async function api(method, url, body) {
   const res = await fetch(`/api${url}`, {
@@ -31,8 +55,7 @@ const DEL = (u) => api('DELETE', u);
 function toast(msg, isError = false) {
   const el = document.createElement('div');
   el.textContent = msg;
-  el.className = 'toast';
-  if (isError) el.style.color = 'var(--bad)';
+  el.className = `toast${isError ? ' err' : ''}`;
   let stack = $('#toasts');
   if (!stack) { stack = document.createElement('div'); stack.id = 'toasts'; document.body.append(stack); }
   stack.append(el);
@@ -79,24 +102,24 @@ const pill = (s) => `<span class="pill ${STATUS_PILL[s] || ''}">${esc(LABELS[s] 
 // Shell, auth
 // ---------------------------------------------------------------------------
 
-// [key, label, roles allowed to see it]
+// [key, label, icon, group, roles allowed to see it]
 const NAV = [
-  ['dashboard', 'Panel'],
-  ['conversations', 'Konuşmalar'],
-  ['leads', 'İş ilanları'],
-  ['projects', 'Projeler'],
-  ['customers', 'Müşteriler'],
-  ['catalog', 'Ürün & fiyatlar'],
-  ['payments', 'Ödemeler & faturalar'],
-  ['expenses', 'Giderler'],
-  ['notifications', 'Bildirimler'],
-  ['jobs', 'Zamanlanmış görevler', ['admin']],
-  ['users', 'Ekip', ['admin']],
-  ['audit', 'Denetim kaydı', ['admin']],
-  ['security', 'Güvenlik'],
-  ['settings', 'Ayarlar', ['admin']],
+  ['dashboard', 'Panel', 'layout-dashboard', 'Genel'],
+  ['notifications', 'Bildirimler', 'bell', 'Genel'],
+  ['conversations', 'Konuşmalar', 'message-circle', 'Satış'],
+  ['leads', 'İş ilanları', 'target', 'Satış'],
+  ['customers', 'Müşteriler', 'users', 'Satış'],
+  ['projects', 'Projeler', 'folder-kanban', 'Üretim'],
+  ['catalog', 'Ürün & fiyatlar', 'package', 'Üretim'],
+  ['payments', 'Ödemeler & faturalar', 'wallet', 'Finans'],
+  ['expenses', 'Giderler', 'receipt', 'Finans'],
+  ['jobs', 'Zamanlanmış görevler', 'clock', 'Yönetim', ['admin']],
+  ['users', 'Ekip', 'user-cog', 'Yönetim', ['admin']],
+  ['audit', 'Denetim kaydı', 'scroll-text', 'Yönetim', ['admin']],
+  ['security', 'Güvenlik', 'shield', 'Yönetim'],
+  ['settings', 'Ayarlar', 'settings', 'Yönetim', ['admin']],
 ];
-const visibleNav = () => NAV.filter(([, , roles]) => !roles || roles.includes(me?.role));
+const visibleNav = () => NAV.filter(([, , , , roles]) => !roles || roles.includes(me?.role));
 const isAdmin = () => me?.role === 'admin';
 
 let me = null;
@@ -116,14 +139,29 @@ async function boot() {
 
 function authCard(inner) {
   window.removeEventListener('hashchange', route);
-  app.innerHTML = `<div class="card login">${inner}</div>`;
+  const feature = (ic, text) => `<li><span class="tile-icon">${icon(ic)}</span>${text}</li>`;
+  app.innerHTML = `<div class="auth">
+    <section class="auth-hero">
+      <div class="brand"><span class="logo">${icon('sparkles')}</span><div><b>Freelance Otomasyon</b><small>Yapay zekalı satış & üretim</small></div></div>
+      <h2>Müşterini bulsun, satsın, üretsin. Sen sadece onayla.</h2>
+      <p>Yapay zeka satış temsilcin WhatsApp'tan cevap verir, iş ilanlarını tarar, projeyi geliştirir ve ödemeyi takip eder.</p>
+      <ul>
+        ${feature('message-circle', 'Satıcı gibi konuşan yapay zeka asistanı')}
+        ${feature('rocket', 'Otomatik geliştirme, revizyon ve demo yayını')}
+        ${feature('wallet', 'Ödeme, iade, fatura ve aylık raporlar')}
+        ${feature('shield-check', 'İki adımlı doğrulama ve denetim kaydı')}
+      </ul>
+    </section>
+    <section class="auth-main"><div class="login">${inner}</div></section>
+  </div>`;
 }
 
 function renderLogin() {
-  authCard(`<h1>Giriş yap</h1>
+  authCard(`<h1>Tekrar hoş geldiniz</h1><p class="muted">Panelinize giriş yapın.</p>
     <form id="f"><label>E-posta<input name="email" type="email" required autocomplete="username"></label>
     <label>Şifre<input name="password" type="password" required autocomplete="current-password"></label>
-    <div class="error" id="err"></div><div class="row"><button class="primary">Giriş</button><span class="spacer"></span><a href="#" id="forgot">Şifremi unuttum</a></div></form>`);
+    <div class="error" id="err"></div><button class="primary">Giriş yap</button>
+    <div class="links"><span class="muted">${icon('lock', 'sm')} Güvenli bağlantı</span><a href="#" id="forgot">Şifremi unuttum</a></div></form>`);
   $('#forgot').onclick = (e) => { e.preventDefault(); renderForgot(); };
   $('#f').onsubmit = async (e) => {
     e.preventDefault();
@@ -138,7 +176,8 @@ function renderLogin() {
 function renderTwoFactor(challenge) {
   authCard(`<h1>İki adımlı doğrulama</h1><p class="muted">Doğrulama uygulamanızdaki 6 haneli kodu girin. Telefonunuza erişemiyorsanız kurtarma kodlarınızdan birini kullanabilirsiniz.</p>
     <form id="f"><label>Kod<input name="code" required autocomplete="one-time-code" inputmode="numeric" autofocus></label>
-    <div class="error" id="err"></div><div class="row"><button class="primary">Doğrula</button><span class="spacer"></span><a href="#" id="back">Geri</a></div></form>`);
+    <div class="error" id="err"></div><button class="primary">${icon('shield-check')} Doğrula</button>
+    <div class="links"><a href="#" id="back">${icon('arrow-left', 'sm')} Girişe dön</a></div></form>`);
   $('#back').onclick = (e) => { e.preventDefault(); renderLogin(); };
   $('#f').onsubmit = async (e) => {
     e.preventDefault();
@@ -155,7 +194,8 @@ function renderTwoFactor(challenge) {
 function renderForgot() {
   authCard(`<h1>Şifremi unuttum</h1><p class="muted">E-posta adresinizi girin; kayıtlıysa şifre sıfırlama bağlantısı gönderilecek.</p>
     <form id="f"><label>E-posta<input name="email" type="email" required></label>
-    <div class="error" id="err"></div><div class="row"><button class="primary">Bağlantı gönder</button><span class="spacer"></span><a href="#" id="back">Girişe dön</a></div></form>`);
+    <div class="error" id="err"></div><button class="primary">${icon('mail')} Bağlantı gönder</button>
+    <div class="links"><a href="#" id="back">${icon('arrow-left', 'sm')} Girişe dön</a></div></form>`);
   $('#back').onclick = (e) => { e.preventDefault(); renderLogin(); };
   $('#f').onsubmit = async (e) => {
     e.preventDefault();
@@ -208,11 +248,45 @@ async function shell(active) {
   const badge = (k) => (k === 'notifications' && counts.unread ? counts.unread
     : k === 'conversations' && counts.esc ? counts.esc
     : k === 'projects' && counts.review ? counts.review : 0);
-  app.innerHTML = `<div class="layout"><nav class="side"><div class="brand">Freelance Otomasyon</div>
-    ${visibleNav().map(([k, l]) => `<a href="#/${k}" class="${k === active ? 'active' : ''}">${l}${badge(k) ? `<span class="badge">${badge(k)}</span>` : ''}</a>`).join('')}
-    <a href="#" id="logout">Çıkış (${esc(me?.name || '')})</a></nav><main id="main"></main></div>`;
-  $('#logout').onclick = async (e) => {
-    e.preventDefault();
+  const groups = [];
+  for (const item of visibleNav()) {
+    const g = groups.find((x) => x.name === item[3]) || groups[groups.push({ name: item[3], items: [] }) - 1];
+    g.items.push(item);
+  }
+  const current = NAV.find(([k]) => k === active);
+  app.innerHTML = `<div class="layout">
+    <aside class="side" id="side">
+      <div class="brand"><span class="logo">${icon('sparkles')}</span><div><b>Freelance</b><small>Otomasyon paneli</small></div></div>
+      ${groups.map((g) => `<div class="nav-group"><div class="nav-title">${g.name}</div>
+        ${g.items.map(([k, l, ic]) => `<a href="#/${k}" class="nav ${k === active ? 'active' : ''}">${icon(ic)}<span class="label">${l}</span>${badge(k) ? `<span class="badge">${badge(k)}</span>` : ''}</a>`).join('')}
+      </div>`).join('')}
+      <div class="side-foot">${avatar(me?.name || '')}<div class="who"><b>${esc(me?.name || '')}</b><small>${esc(LABELS[me?.role] || '')}</small></div>
+        <button class="icon-btn" id="logout" title="Çıkış yap" aria-label="Çıkış yap">${icon('log-out')}</button></div>
+    </aside>
+    <div class="content">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Menü">${icon('menu')}</button>
+        <div class="crumbs">${esc(current?.[3] || '')} ${icon('chevron-right', 'sm')} <b>${esc(current?.[1] || '')}</b></div>
+        <span class="spacer"></span>
+        <button class="icon-btn" id="themeBtn" title="${THEME_LABEL[getTheme()]}" aria-label="Tema değiştir">${icon(themeIcon())}</button>
+        <a class="icon-btn" href="#/notifications" title="Bildirimler" aria-label="Bildirimler">${icon('bell')}${counts.unread ? '<span class="dot"></span>' : ''}</a>
+        <a href="#/security" title="Hesabım">${avatar(me?.name || '', 'sm')}</a>
+      </header>
+      <main id="main"></main>
+    </div>
+  </div>`;
+  document.body.classList.remove('nav-open');
+  $('#menuBtn').onclick = () => document.body.classList.toggle('nav-open');
+  document.body.onclick = (e) => {
+    if (document.body.classList.contains('nav-open') && !e.target.closest('#side') && !e.target.closest('#menuBtn')) document.body.classList.remove('nav-open');
+  };
+  $('#themeBtn').onclick = (e) => {
+    const t = cycleTheme();
+    e.currentTarget.innerHTML = icon(themeIcon());
+    e.currentTarget.title = THEME_LABEL[t];
+    toast(THEME_LABEL[t]);
+  };
+  $('#logout').onclick = async () => {
     await POST('/auth/logout');
     location.hash = '';
     renderLogin();
@@ -241,7 +315,7 @@ async function route() {
 function barChart(el, rows, currency) {
   const W = 720; const H = 240; const pad = { l: 56, r: 8, t: 10, b: 26 };
   const raw = Math.max(0, ...rows.flatMap((r) => [r.revenue, r.expenses]));
-  if (!raw) { el.innerHTML = '<p class="muted">Henüz ciro veya gider kaydı yok. Ödemeler ve giderler oluştukça grafik burada görünecek.</p>'; return; }
+  if (!raw) { el.innerHTML = empty('Henüz veri yok', 'Ödemeler ve giderler oluştukça grafik burada görünecek.', 'trending-up'); return; }
   // Round the axis up to a "nice" number so tick labels stay distinct.
   const mag = 10 ** Math.floor(Math.log10(raw));
   const max = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((m) => m >= raw);
@@ -288,37 +362,45 @@ async function viewDashboard(main) {
   const month = sessionStorage.getItem('month') || new Date().toISOString().slice(0, 7);
   const d = await GET(`/dashboard?month=${month}`);
   const s = d.stats; const c = s.currency;
-  const tile = (label, value, sub = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
-  main.innerHTML = `<div class="row"><h1>Panel</h1><span class="spacer"></span>
-    <input type="month" id="month" value="${month}" style="width:auto">
-    <a class="btn" href="/api/reports/monthly.pdf?month=${month}">PDF özet</a>
-    <a class="btn" href="/api/reports/monthly.pdf?month=${month}&analysis=1">PDF + yapay zeka yorumu</a></div>
+  const tile = (label, value, sub = '', ic = 'sparkles', tone = '', hero = false) => `<div class="tile ${hero ? 'hero' : ''}">
+    <div class="head"><span class="tile-icon ${tone}">${icon(ic)}</span><span class="label">${label}</span></div>
+    <div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+  const monthName = new Date(`${month}-01T12:00:00`).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
+  main.innerHTML = `<div class="row"><div><h1>Merhaba, ${esc((me?.name || '').split(' ')[0])}</h1><div class="muted">${esc(monthName)} özeti</div></div><span class="spacer"></span>
+    <input type="month" id="month" value="${month}" style="width:auto" aria-label="Ay seç">
+    <a class="btn" href="/api/reports/monthly.pdf?month=${month}">${icon('download')} PDF özet</a>
+    <a class="btn primary" href="/api/reports/monthly.pdf?month=${month}&analysis=1">${icon('sparkles')} PDF + yapay zeka yorumu</a></div>
   <div class="grid">
-    ${tile('Net ciro', money(s.revenue, c), `Brüt ${money(s.gross_revenue, c)} · İade ${money(s.refunded, c)}`)}
-    ${tile('Toplam gider', money(s.expenses, c), `Yapay zeka ${money(s.expenses_by_category.ai, c)}`)}
-    ${tile('Kâr', money(s.profit, c))}
-    ${tile('Yeni müşteri', s.new_customers, `${s.conversations} konuşma`)}
-    ${tile('Alınan iş', s.projects_won, `Dönüşüm %${s.conversion_rate}`)}
-    ${tile('Ortalama sipariş', money(s.average_order, c), `${s.payments_count} ödeme`)}
-    ${tile('Taranan ilan', s.leads, `${s.leads_contacted} iletişim`)}
-    ${tile('Admine aktarılan', s.escalations, `${d.open_escalations} şu an bekliyor`)}
-    ${tile('Token (bu ay)', Number(d.ai_tokens_this_month).toLocaleString('tr-TR'))}
+    ${tile('Net ciro', money(s.revenue, c), `Brüt ${money(s.gross_revenue, c)} · İade ${money(s.refunded, c)}`, 'banknote', '', true)}
+    ${tile('Kâr', money(s.profit, c), `Gider ${money(s.expenses, c)}`, s.profit >= 0 ? 'trending-up' : 'trending-down', s.profit >= 0 ? 'good' : 'bad')}
+    ${tile('Toplam gider', money(s.expenses, c), `Yapay zeka ${money(s.expenses_by_category.ai, c)} · ${Number(d.ai_tokens_this_month).toLocaleString('tr-TR')} token`, 'receipt', 'warn')}
+    ${tile('Alınan iş', s.projects_won, `Dönüşüm %${s.conversion_rate}`, 'briefcase', 'info')}
+    ${tile('Yeni müşteri', s.new_customers, `${s.conversations} konuşma`, 'user-plus', 'good')}
+    ${tile('Ortalama sipariş', money(s.average_order, c), `${s.payments_count} ödeme`, 'coins')}
+    ${tile('Taranan ilan', s.leads, `${s.leads_contacted} ilan sahibine ulaşıldı`, 'target', 'info')}
+    ${tile('Admine aktarılan', s.escalations, `${d.open_escalations} şu an bekliyor`, 'circle-alert', d.open_escalations ? 'bad' : '')}
   </div>
-  <div class="card"><h2>Son 12 ay</h2><div id="chart"></div></div>
-  <div class="card"><div class="row"><h2>Yapay zeka durum değerlendirmesi</h2><span class="spacer"></span><button class="primary" id="analyze">Analiz et</button></div>
-    <div id="analysis" class="markdown muted">Satış, gider ve ürün performansınızı yorumlatıp çözüm önerileri almak için "Analiz et"e basın.</div></div>
-  <div class="card"><h2>Ürün performansı (son 90 gün)</h2><div class="table-wrap"><table><tr><th>Ürün</th><th class="num">Fiyat</th><th class="num">Önerilme</th><th class="num">Satış</th></tr>
-    ${d.products.map((p) => `<tr><td>${esc(p.name)}</td><td class="num">${money(p.price, p.currency)}</td><td class="num">${p.recommended}</td><td class="num">${p.sold}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Ürün yok</td></tr>'}
-  </table></div></div>`;
+  ${d.open_escalations || d.projects_waiting_review || d.unread_notifications ? `<div class="attention">
+    ${d.open_escalations ? `<a href="#/conversations" class="attn bad">${icon('circle-alert')}<span><b>${d.open_escalations} konuşma</b> sizi bekliyor</span>${icon('chevron-right', 'sm')}</a>` : ''}
+    ${d.projects_waiting_review ? `<a href="#/projects" class="attn warn">${icon('eye')}<span><b>${d.projects_waiting_review} proje</b> kontrol bekliyor</span>${icon('chevron-right', 'sm')}</a>` : ''}
+    ${d.unread_notifications ? `<a href="#/notifications" class="attn info">${icon('bell')}<span><b>${d.unread_notifications} bildirim</b> okunmadı</span>${icon('chevron-right', 'sm')}</a>` : ''}
+  </div>` : ''}
+  <div class="card"><div class="row"><h2>Son 12 ay: ciro ve gider</h2></div><div id="chart"></div></div>
+  <div class="card"><div class="row"><h2>${icon('sparkles')} Yapay zeka durum değerlendirmesi</h2><span class="spacer"></span><button class="primary" id="analyze">${icon('sparkles')} Analiz et</button></div>
+    <div id="analysis" class="ai-box markdown muted">Satış, gider ve ürün performansınızı yorumlatıp somut çözüm önerileri almak için "Analiz et"e basın.</div></div>
+  <div class="card table-wrap"><h2>Ürün performansı <span class="muted" style="font-weight:400">· son 90 gün</span></h2><table><tr><th>Ürün</th><th class="num">Fiyat</th><th class="num">Önerilme</th><th class="num">Satış</th></tr>
+    ${d.products.map((p) => `<tr><td><b>${esc(p.name)}</b></td><td class="num">${money(p.price, p.currency)}</td><td class="num">${p.recommended}</td><td class="num">${p.sold}</td></tr>`).join('') || `<tr><td colspan="4">${empty('Henüz ürün yok', 'Ürün & fiyatlar sayfasından ekleyin.', 'package')}</td></tr>`}
+  </table></div>`;
   barChart($('#chart'), d.trend, c);
   $('#month').onchange = (e) => { sessionStorage.setItem('month', e.target.value); route(); };
   $('#analyze').onclick = async (e) => {
-    e.target.disabled = true;
-    $('#analysis').textContent = 'Analiz ediliyor...';
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    $('#analysis').innerHTML = '<span class="spinner"></span> Analiz ediliyor...';
     const r = await act(() => POST('/dashboard/analysis', { month }));
     $('#analysis').textContent = r ? r.analysis : 'Analiz alınamadı.';
     $('#analysis').classList.remove('muted');
-    e.target.disabled = false;
+    btn.disabled = false;
   };
 }
 
@@ -335,14 +417,24 @@ async function shortcuts() {
 async function viewConversations(main, id) {
   const filter = sessionStorage.getItem('convFilter') || '';
   const list = await GET(`/conversations${filter ? `?status=${filter}` : ''}`);
-  main.innerHTML = `<div class="row"><h1>Konuşmalar</h1><span class="spacer"></span>
-    <select id="filter" style="width:auto"><option value="">Tümü</option><option value="escalated">Admin bekleyenler</option><option value="open">Açık</option><option value="closed">Kapalı</option></select></div>
+  const timeAgo = (t) => {
+    const d = new Date(`${t.replace(' ', 'T')}Z`);
+    const mins = Math.round((Date.now() - d) / 60000);
+    if (mins < 1) return 'şimdi';
+    if (mins < 60) return `${mins} dk`;
+    if (mins < 1440) return `${Math.round(mins / 60)} sa`;
+    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+  };
+  main.innerHTML = `<div class="row"><div><h1>Konuşmalar</h1><div class="muted">WhatsApp, web ve e-posta sohbetleri</div></div><span class="spacer"></span>
+    <select id="filter" style="width:auto"><option value="">Tüm konuşmalar</option><option value="escalated">Admin bekleyenler</option><option value="open">Açık</option><option value="closed">Kapalı</option></select></div>
     <div class="chat-layout"><div class="card conv-list">${list.map((c) => `
       <div class="conv-item ${String(c.id) === id ? 'active' : ''}" data-id="${c.id}">
-        <div class="row"><b>${esc(c.customer_name || '#' + c.id)}</b><span class="spacer"></span>${pill(c.channel)} ${pill(c.mode)}</div>
-        <div class="row">${c.status === 'escalated' ? pill('escalated') : ''}<span class="last">${esc(c.last_message || '')}</span></div>
-      </div>`).join('') || '<p class="muted" style="padding:12px">Henüz konuşma yok.</p>'}</div>
-    <div id="detail" class="card">${id ? '' : '<p class="muted">Bir konuşma seçin.</p>'}</div></div>`;
+        ${avatar(c.customer_name || '#')}
+        <div class="body"><div class="top"><b>${esc(c.customer_name || '#' + c.id)}</b><span class="muted" style="font-size:11.5px">${timeAgo(c.last_message_at)}</span></div>
+          <div class="last">${esc(c.last_message || '')}</div>
+          <div class="tags">${pill(c.channel)} ${pill(c.mode)} ${c.status === 'escalated' ? pill('escalated') : ''}</div></div>
+      </div>`).join('') || empty('Henüz konuşma yok', 'Müşteriler yazdığında burada görünecek.', 'message-circle')}</div>
+    <div id="detail" class="card">${id ? '' : empty('Bir konuşma seçin', 'Soldaki listeden bir sohbet açın.', 'message-square-text')}</div></div>`;
   $('#filter').value = filter;
   $('#filter').onchange = (e) => { sessionStorage.setItem('convFilter', e.target.value); route(); };
   $$('.conv-item').forEach((el) => { el.onclick = () => { location.hash = `#/conversations/${el.dataset.id}`; }; });
@@ -357,18 +449,23 @@ async function viewConversations(main, id) {
     const keepDraft = $('#reply')?.value || '';
     lastCount = d.messages.length;
     const c = d.conversation;
-    detail.innerHTML = `<div class="row"><h2>${esc(d.customer?.name || 'Müşteri')}</h2>${pill(c.channel)} ${pill(c.mode)} ${pill(c.status)}<span class="spacer"></span>
-        ${c.mode === 'ai' ? '<button id="takeover" class="primary">Konuşmayı devral</button>' : '<button id="release">Yapay zekaya devret</button>'}
-        <button id="close">Kapat</button></div>
-      <div class="muted">${esc([d.customer?.phone, d.customer?.email].filter(Boolean).join(' · '))}
-        ${c.escalation_reason ? ` · Aktarım sebebi: ${esc(c.escalation_reason)}` : ''}
-        ${d.project ? ` · Proje: <a href="#/projects/${d.project.id}">${esc(d.project.title)}</a> ${pill(d.project.status)}` : ''}</div>
-      ${c.channel === 'platform' ? '<p class="muted">Bu konuşma bir freelancer platformunda; mesajları platform üzerinden iletmeniz gerekir.</p>' : ''}
-      <div class="messages" id="msgs">${d.messages.map((m) => `<div class="msg ${m.sender}"><div class="who">${{ customer: 'Müşteri', ai: 'Yapay zeka', admin: 'Admin', system: '' }[m.sender]} ${date(m.created_at)}</div>${esc(m.body)}</div>`).join('')}</div>
-      <div class="shortcuts"><span class="group">Temalar:</span>${sc.themes.map((t) => `<button class="chip" data-text="Tema önerisi: ${esc(t.name)}${t.preview_url ? ` (${esc(t.preview_url)})` : ''}">${esc(t.name)}</button>`).join('')}</div>
-      <div class="shortcuts"><span class="group">Diller:</span>${sc.languages.map((l) => `<button class="chip" data-text="Teknoloji: ${esc(l.name)}">${esc(l.name)}</button>`).join('')}</div>
-      <div class="shortcuts"><span class="group">Örnekler:</span>${sc.products.map((p) => `<button class="chip" data-text="${esc(p.name)}${p.demo_url ? ` örneği: ${esc(p.demo_url)}` : ''}">${esc(p.name)}</button>`).join('')}</div>
-      <form id="send" class="row"><textarea id="reply" placeholder="${c.mode === 'ai' ? 'Mesaj yazarsanız konuşmayı devralırsınız' : 'Müşteriye yazın'}" style="min-height:60px;flex:1"></textarea><button class="primary">Gönder</button></form>`;
+    const who = { customer: d.customer?.name || 'Müşteri', ai: 'Yapay zeka', admin: 'Siz', system: '' };
+    detail.innerHTML = `<div class="chat-head">${avatar(d.customer?.name || '#')}
+        <div><h2>${esc(d.customer?.name || 'Müşteri')}</h2><div class="muted" style="font-size:12.5px">${esc([d.customer?.phone, d.customer?.email].filter(Boolean).join(' · ') || 'İletişim bilgisi yok')}</div></div>
+        ${pill(c.channel)} ${pill(c.mode)} ${pill(c.status)}<span class="spacer"></span>
+        ${c.mode === 'ai' ? `<button id="takeover" class="primary">${icon('user-cog')} Konuşmayı devral</button>` : `<button id="release">${icon('bot')} Yapay zekaya devret</button>`}
+        <button id="close" class="icon-btn" title="Konuşmayı kapat" aria-label="Konuşmayı kapat">${icon('x')}</button></div>
+      ${c.escalation_reason || d.project || c.channel === 'platform' ? `<div class="chat-meta">
+        ${c.escalation_reason ? `${icon('circle-alert', 'sm')} Aktarım sebebi: ${esc(c.escalation_reason)} ` : ''}
+        ${d.project ? ` ${icon('folder-kanban', 'sm')} Proje: <a href="#/projects/${d.project.id}">${esc(d.project.title)}</a> ${pill(d.project.status)}` : ''}
+        ${c.channel === 'platform' ? ' Bu konuşma bir freelancer platformunda; mesajları platform üzerinden iletmeniz gerekir.' : ''}</div>` : ''}
+      <div class="messages" id="msgs">${d.messages.map((m) => `<div class="msg ${m.sender}"><div class="who">${esc(who[m.sender])} · ${date(m.created_at)}</div>${esc(m.body)}</div>`).join('')}</div>
+      <div class="composer">
+        <div class="shortcuts"><span class="group">Temalar</span>${sc.themes.map((t) => `<button class="chip" data-text="Tema önerisi: ${esc(t.name)}${t.preview_url ? ` (${esc(t.preview_url)})` : ''}">${esc(t.name)}</button>`).join('')}</div>
+        <div class="shortcuts"><span class="group">Diller</span>${sc.languages.map((l) => `<button class="chip" data-text="Teknoloji: ${esc(l.name)}">${esc(l.name)}</button>`).join('')}</div>
+        <div class="shortcuts"><span class="group">Örnekler</span>${sc.products.map((p) => `<button class="chip" data-text="${esc(p.name)}${p.demo_url ? ` örneği: ${esc(p.demo_url)}` : ''}">${esc(p.name)}</button>`).join('')}</div>
+        <form id="send"><textarea id="reply" placeholder="${c.mode === 'ai' ? 'Mesaj yazarsanız konuşmayı devralırsınız…' : 'Müşteriye yazın…'}"></textarea><button class="primary">${icon('send')} Gönder</button></form>
+      </div>`;
     $('#reply').value = keepDraft;
     const msgs = $('#msgs'); msgs.scrollTop = msgs.scrollHeight;
     $$('.chip', detail).forEach((b) => { b.onclick = () => { const r = $('#reply'); r.value = `${r.value}${r.value ? '\n' : ''}${b.dataset.text}`; r.focus(); }; });
@@ -395,13 +492,13 @@ async function viewLeads(main) {
   const leads = await GET(`/leads${filter ? `?status=${filter}` : ''}`);
   main.innerHTML = `<div class="row"><h1>İş ilanları</h1><span class="spacer"></span>
     <select id="filter" style="width:auto"><option value="">Tümü</option><option value="needs_admin">Admin ilgilenmeli</option><option value="contacted">İletişime geçildi</option><option value="filtered_out">Kapsam dışı</option><option value="won">Kazanıldı</option></select>
-    <a class="btn" href="#/settings">Tarama kapsamı</a><button class="primary" id="scan">Şimdi tara</button></div>
+    <a class="btn" href="#/settings">${icon('filter')} Tarama kapsamı</a><button class="primary" id="scan">${icon('refresh-cw')} Şimdi tara</button></div>
     <div class="card table-wrap"><table><tr><th>İlan</th><th>Platform</th><th class="num">Bütçe</th><th>Durum</th><th></th></tr>
     ${leads.map((l) => `<tr><td><b>${esc(l.title)}</b><div class="muted">${esc(l.description.slice(0, 220))}</div>
         ${l.filter_reason ? `<div class="muted">Sebep: ${esc(l.filter_reason)}</div>` : ''}${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">İlana git</a>` : ''}</td>
-      <td>${esc(l.platform)}</td><td class="num">${l.budget_min ?? '?'} – ${l.budget_max ?? '?'} ${esc(l.currency || '')}</td><td>${pill(l.status)}</td>
-      <td><div class="row">${l.conversation_id ? `<a class="btn" href="#/conversations/${l.conversation_id}">Konuşma</a>` : ''}
-        ${l.status !== 'won' ? `<button data-project="${l.id}">İşi aldım</button><button data-lost="${l.id}">Kaybedildi</button>` : ''}</div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">İlan yok. "Şimdi tara" ile platformları tarayın.</td></tr>'}
+      <td><span class="pill info">${esc(l.platform)}</span></td><td class="num" style="white-space:nowrap">${l.budget_min != null ? money(l.budget_min) : '?'} – ${l.budget_max != null ? money(l.budget_max) : '?'} ${esc(l.currency || '')}</td><td>${pill(l.status)}</td>
+      <td><div class="row actions">${l.conversation_id ? `<a class="btn" href="#/conversations/${l.conversation_id}">${icon('message-circle', 'sm')} Konuşma</a>` : ''}
+        ${l.status !== 'won' ? `<button data-project="${l.id}">${icon('check', 'sm')} İşi aldım</button><button class="icon-btn" title="Kaybedildi olarak işaretle" aria-label="Kaybedildi" data-lost="${l.id}">${icon('x', 'sm')}</button>` : ''}</div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">İlan yok. "Şimdi tara" ile platformları tarayın.</td></tr>'}
     </table></div>`;
   $('#filter').value = filter;
   $('#filter').onchange = (e) => { sessionStorage.setItem('leadFilter', e.target.value); route(); };
@@ -427,7 +524,7 @@ async function viewLeads(main) {
 async function viewProjects(main, id) {
   if (id) return viewProject(main, id);
   const [list, customers, catalog] = await Promise.all([GET('/projects'), GET('/customers'), fetch('/api/chat/info').then((r) => r.json())]);
-  main.innerHTML = `<div class="row"><h1>Projeler</h1><span class="spacer"></span><button id="new" class="primary">Yeni proje</button></div>
+  main.innerHTML = `<div class="row"><h1>Projeler</h1><span class="spacer"></span><button id="new" class="primary">${icon('plus')} Yeni proje</button></div>
     <div class="card" id="newForm" hidden><h2>Yeni proje</h2><form id="pf"><div class="form-grid">
       <label>Başlık<input name="title" required></label>
       <label>Müşteri<select name="customer_id" required>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
@@ -452,7 +549,22 @@ async function viewProject(main, id) {
   const d = await GET(`/projects/${id}`);
   const p = d.project;
   const can = (...s) => s.includes(p.status);
-  main.innerHTML = `<div class="row"><h1>${esc(p.title)}</h1>${pill(p.status)}${d.building ? ' <span class="pill warn">Yapay zeka çalışıyor…</span>' : ''}<span class="spacer"></span><a class="btn" href="#/projects">← Projeler</a></div>
+  // Pipeline: which step each status belongs to.
+  const STEPS = [
+    ['İş alındı', 'briefcase', ['won']],
+    ['Geliştirme', 'cpu', ['building', 'build_failed', 'revision']],
+    ['Admin kontrolü', 'eye', ['review', 'approved']],
+    ['Demo', 'rocket', ['demo_live', 'changes_requested']],
+    ['Müşteri onayı', 'circle-check', ['customer_approved']],
+    ['Ödeme', 'credit-card', ['awaiting_payment', 'paid']],
+    ['Teslim', 'package', ['delivered']],
+  ];
+  const at = STEPS.findIndex(([, , st]) => st.includes(p.status));
+  const stepper = p.status === 'cancelled' ? '' : `<div class="card stepper">${STEPS.map(([l, ic], i) => `
+    <div class="step ${i < at || p.status === 'delivered' ? 'done' : i === at ? (p.status === 'build_failed' ? 'fail' : 'now') : ''}">
+      <span class="dot">${icon(i < at || p.status === 'delivered' ? 'check' : ic, 'sm')}</span><span class="name">${l}</span></div>`).join('')}</div>`;
+  main.innerHTML = `<div class="row"><div><h1>${esc(p.title)}</h1><div class="row" style="margin-top:6px">${pill(p.status)}${d.building ? ' <span class="pill info"><span class="spinner" style="width:10px;height:10px"></span> Yapay zeka çalışıyor</span>' : ''}<span class="muted">v${p.current_version}</span></div></div><span class="spacer"></span><a class="btn" href="#/projects">${icon('arrow-left')} Projeler</a></div>
+  ${stepper}
   <div class="grid">
     <div class="tile"><div class="label">Müşteri</div><div class="value" style="font-size:16px">${esc(p.customer_name || '-')}</div>${p.conversation_id ? `<a href="#/conversations/${p.conversation_id}">Konuşmaya git</a>` : ''}</div>
     <div class="tile"><div class="label">Fiyat</div><div class="value">${money(p.price, p.currency)}</div></div>
@@ -460,19 +572,19 @@ async function viewProject(main, id) {
     <div class="tile"><div class="label">Demo</div><div class="value" style="font-size:14px">${p.demo_url ? `<a href="${esc(p.demo_url)}" target="_blank" rel="noopener">${esc(p.demo_url)}</a>` : '-'}</div></div>
   </div>
   <div class="card"><h2>İşlemler</h2><div class="row">
-    <button id="approve" ${can('review') ? '' : 'disabled'}>Sürümü onayla</button>
-    <button id="deploy" class="primary" ${can('approved', 'demo_live', 'changes_requested') && p.current_version ? '' : 'disabled'}>Demoyu yayınla ve müşteriye gönder</button>
+    <button id="approve" ${can('review') ? '' : 'disabled'}>${icon('check')} Sürümü onayla</button>
+    <button id="deploy" class="primary" ${can('approved', 'demo_live', 'changes_requested') && p.current_version ? '' : 'disabled'}>${icon('rocket')} Demoyu yayınla ve müşteriye gönder</button>
     <button id="custok" ${can('demo_live') ? '' : 'disabled'}>Müşteri onayladı (manuel)</button>
-    <button id="payreq" ${can('customer_approved', 'demo_live', 'approved') ? '' : 'disabled'}>Ödeme talebi gönder</button>
-    <button id="deliver" ${can('paid') ? '' : 'disabled'}>Teslim et</button>
-    <button id="rebuild" ${d.building ? 'disabled' : ''}>Yeniden üret</button>
-    <button id="cancel" class="danger">İptal et</button></div>
+    <button id="payreq" ${can('customer_approved', 'demo_live', 'approved') ? '' : 'disabled'}>${icon('credit-card')} Ödeme talebi gönder</button>
+    <button id="deliver" ${can('paid') ? '' : 'disabled'}>${icon('package')} Teslim et</button>
+    <button id="rebuild" ${d.building ? 'disabled' : ''}>${icon('refresh-cw')} Yeniden üret</button>
+    <button id="cancel" class="danger">${icon('x')} İptal et</button></div>
     <h3>Düzeltme iste (yapay zeka yeni sürüm üretir)</h3>
     <form id="fb"><textarea name="feedback" placeholder="Örn: Ana sayfadaki başlığı büyüt, iletişim formuna telefon alanı ekle..."></textarea>
-    <button class="primary" ${d.building ? 'disabled' : ''}>Düzeltmeyi yapay zekaya gönder</button></form></div>
+    <button class="primary" ${d.building ? 'disabled' : ''}>${icon('sparkles')} Düzeltmeyi yapay zekaya gönder</button></form></div>
   <div class="card"><h2>Gereksinimler</h2><form id="req"><textarea name="requirements" style="min-height:120px">${esc(p.requirements)}</textarea><button>Kaydet</button></form></div>
   <div class="card"><h2>Sürümler</h2><div class="table-wrap"><table><tr><th>Sürüm</th><th>Özet</th><th>Düzeltme notu</th><th>Tarih</th><th></th></tr>
-    ${d.versions.map((v) => `<tr><td>v${v.version}</td><td>${esc(v.summary)}</td><td>${esc(v.feedback || '-')}</td><td>${date(v.created_at)}</td><td><a class="btn" target="_blank" rel="noopener" href="${esc(v.preview_url)}">Önizle</a></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Henüz sürüm yok</td></tr>'}</table></div>
+    ${d.versions.map((v) => `<tr><td>v${v.version}</td><td>${esc(v.summary)}</td><td>${esc(v.feedback || '-')}</td><td>${date(v.created_at)}</td><td><a class="btn" target="_blank" rel="noopener" href="${esc(v.preview_url)}">${icon('eye')} Önizle</a></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Henüz sürüm yok</td></tr>'}</table></div>
     ${d.files.length ? `<h3>Dosyalar (v${p.current_version})</h3>${d.files.map((f) => `<a href="/api/projects/${p.id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}" target="_blank">${esc(f.path)}</a> <span class="muted">${f.size} b</span>`).join('<br>')}` : ''}</div>
   <div class="card"><h2>Ödemeler</h2>${d.payments.map((pay) => `<div>${pay.reference} · ${money(pay.amount, pay.currency)} ${pill(pay.status)}</div>`).join('') || '<span class="muted">Yok</span>'}</div>
   <div class="card"><h2>Geçmiş</h2><ul class="timeline">${d.events.map((e) => `<li><span class="muted">${date(e.created_at)}</span> ${esc(e.message)}</li>`).join('')}</ul></div>`;
@@ -496,7 +608,7 @@ async function viewProject(main, id) {
 
 async function viewCustomers(main) {
   const list = await GET('/customers');
-  main.innerHTML = `<div class="row"><h1>Müşteriler</h1><span class="spacer"></span>${isAdmin() ? '<a class="btn" href="/api/export/customers.csv">CSV indir</a>' : ''}</div><div class="card table-wrap"><table><tr><th>Ad</th><th>Telefon</th><th>E-posta</th><th>Kaynak</th><th class="num">Proje</th><th class="num">Ödenen</th><th>Kayıt</th></tr>
+  main.innerHTML = `<div class="row"><h1>Müşteriler</h1><span class="spacer"></span>${isAdmin() ? `<a class="btn" href="/api/export/customers.csv">${icon('download')} CSV indir</a>` : ''}</div><div class="card table-wrap"><table><tr><th>Ad</th><th>Telefon</th><th>E-posta</th><th>Kaynak</th><th class="num">Proje</th><th class="num">Ödenen</th><th>Kayıt</th></tr>
     ${list.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.phone || '-')}</td><td>${esc(c.email || '-')}</td><td>${esc(c.platform || '-')}</td><td class="num">${c.project_count}</td><td class="num">${money(c.total_paid)}</td><td>${date(c.created_at)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Müşteri yok</td></tr>'}</table></div>`;
 }
 
@@ -514,14 +626,15 @@ async function viewCatalog(main) {
   const tab = sessionStorage.getItem('catTab') || 'products';
   const cfg = CATALOG[tab];
   const rows = (await GET(`/${tab}`)).filter((r) => r.active);
-  main.innerHTML = `<h1>Ürün & fiyatlar</h1><div class="row" style="margin-bottom:12px">${Object.entries(CATALOG).map(([k, v]) => `<button data-tab="${k}" class="${k === tab ? 'primary' : ''}">${v.title}</button>`).join('')}</div>
+  const TAB_ICON = { products: 'package', themes: 'sparkles', languages: 'cpu' };
+  main.innerHTML = `<h1>Ürün & fiyatlar</h1><div class="tabs">${Object.entries(CATALOG).map(([k, v]) => `<button data-tab="${k}" class="${k === tab ? 'active' : ''}">${icon(TAB_ICON[k], 'sm')} ${v.title}</button>`).join('')}</div>
     <p class="muted">Yapay zeka satış yaparken bu listeleri kullanır; temalar ve diller sohbet ekranında kısayol olarak görünür.</p>
     <div class="card"><h2 id="formTitle">Yeni ekle</h2><form id="cf"><input type="hidden" name="id"><div class="form-grid">
       ${cfg.fields.filter((f) => f[2] !== 'textarea').map(([k, l, t]) => `<label>${l}<input name="${k}" ${t ? `type="${t}" step="0.01"` : ''} ${k === 'name' ? 'required' : ''}></label>`).join('')}</div>
       ${cfg.fields.filter((f) => f[2] === 'textarea').map(([k, l]) => `<label>${l}<textarea name="${k}"></textarea></label>`).join('')}
       <div class="row"><button class="primary">Kaydet</button><button type="reset" id="resetBtn">Temizle</button></div></form></div>
     <div class="card table-wrap"><table><tr>${cfg.fields.slice(0, 4).map((f) => `<th>${f[1]}</th>`).join('')}<th></th></tr>
-    ${rows.map((r) => `<tr>${cfg.fields.slice(0, 4).map(([k]) => `<td>${esc(r[k])}</td>`).join('')}<td><div class="row"><button data-edit="${r.id}">Düzenle</button><button class="danger" data-del="${r.id}">Sil</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Kayıt yok</td></tr>'}</table></div>`;
+    ${rows.map((r) => `<tr>${cfg.fields.slice(0, 4).map(([k], i) => `<td${k === 'price' ? ' class="num"' : ''}>${k === 'price' ? `<b>${money(r[k])}</b>` : i === 0 ? `<b>${esc(r[k])}</b>` : esc(r[k])}</td>`).join('')}<td><div class="row actions"><button data-edit="${r.id}">${icon('pencil', 'sm')} Düzenle</button><button class="danger icon-btn" title="Sil" aria-label="Sil" data-del="${r.id}">${icon('trash-2', 'sm')}</button></div></td></tr>`).join('') || `<tr><td colspan="5">${empty('Kayıt yok', 'Yukarıdaki formdan ekleyin.', TAB_ICON[tab])}</td></tr>`}</table></div>`;
   $$('[data-tab]').forEach((b) => { b.onclick = () => { sessionStorage.setItem('catTab', b.dataset.tab); route(); }; });
   const form = $('#cf');
   $('#resetBtn').onclick = () => { form.elements.id.value = ''; $('#formTitle').textContent = 'Yeni ekle'; };
@@ -548,7 +661,7 @@ async function viewCatalog(main) {
 
 async function viewPayments(main) {
   const [payments, invoices] = await Promise.all([GET('/payments'), GET('/invoices')]);
-  const csv = (t, l) => (isAdmin() ? `<a class="btn" href="/api/export/${t}.csv">${l}</a>` : '');
+  const csv = (t, l) => (isAdmin() ? `<a class="btn" href="/api/export/${t}.csv">${icon('download')} ${l}</a>` : '');
   main.innerHTML = `<div class="row"><h1>Ödemeler & faturalar</h1><span class="spacer"></span>${csv('payments', 'Ödemeler CSV')}${csv('invoices', 'Faturalar CSV')}</div>
   <div class="card table-wrap"><h2>Ödeme geçmişi</h2><table><tr><th>Referans</th><th>Müşteri / proje</th><th>Yöntem</th><th class="num">Tutar</th><th class="num">İade</th><th>Durum</th><th>Oluşturma</th><th>Ödeme</th><th></th></tr>
   ${payments.map((p) => `<tr><td>${esc(p.reference)}</td><td>${esc(p.customer_name || '-')}<div class="muted">${esc(p.project_title || '')}</div></td><td>${p.method === 'iban' ? 'Havale/EFT' : 'Kart (Stripe)'}</td>
@@ -559,7 +672,7 @@ async function viewPayments(main) {
   <div class="card table-wrap"><h2>Faturalar</h2><table><tr><th>No</th><th>Tür</th><th>Müşteri</th><th>Proje</th><th class="num">Ara toplam</th><th class="num">KDV</th><th class="num">Toplam</th><th>Tarih</th><th></th></tr>
   ${invoices.map((i) => `<tr><td>${esc(i.number)}</td><td>${i.kind === 'refund' ? 'İade' : 'Satış'}</td><td>${esc(i.customer_name || '-')}</td><td>${esc(i.project_title || '-')}</td>
     <td class="num">${money(i.subtotal, i.currency)}</td><td class="num">${money(i.tax_amount, i.currency)}</td><td class="num">${money(i.total, i.currency)}</td><td>${date(i.issued_at)}</td>
-    <td><a class="btn" href="/api/invoices/${i.id}/pdf" target="_blank">PDF</a></td></tr>`).join('') || '<tr><td colspan="9" class="muted">Fatura yok</td></tr>'}</table></div>`;
+    <td><a class="btn" href="/api/invoices/${i.id}/pdf" target="_blank">${icon('file-text')} PDF</a></td></tr>`).join('') || '<tr><td colspan="9" class="muted">Fatura yok</td></tr>'}</table></div>`;
   $$('[data-paid]').forEach((b) => { b.onclick = () => confirm('Ödemenin hesaba geldiğini doğruladınız mı?') && act(() => POST(`/payments/${b.dataset.paid}/mark-paid`), 'Ödeme kaydedildi, fatura oluşturuldu').then(route); });
   $$('[data-cancel]').forEach((b) => { b.onclick = () => act(() => POST(`/payments/${b.dataset.cancel}/cancel`)).then(route); });
   $$('[data-refund]').forEach((b) => { b.onclick = () => {
@@ -572,7 +685,7 @@ async function viewPayments(main) {
 
 async function viewExpenses(main) {
   const [expenses, usage] = await Promise.all([GET('/expenses'), GET('/ai-usage')]);
-  main.innerHTML = `<div class="row"><h1>Giderler</h1><span class="spacer"></span>${isAdmin() ? '<a class="btn" href="/api/export/expenses.csv">CSV indir</a>' : ''}</div>
+  main.innerHTML = `<div class="row"><h1>Giderler</h1><span class="spacer"></span>${isAdmin() ? `<a class="btn" href="/api/export/expenses.csv">${icon('download')} CSV indir</a>` : ''}</div>
   <div class="card"><h2>Gider ekle</h2><form id="ef" class="form-grid">
     <label>Kategori<select name="category"><option value="hosting">Sunucu/hosting</option><option value="ads">Reklam</option><option value="software">Yazılım/abonelik</option><option value="ai">Yapay zeka (ek)</option><option value="other">Diğer</option></select></label>
     <label>Tutar<input name="amount" type="number" step="0.01" required></label><label>Para birimi<input name="currency" value="TRY"></label>
@@ -589,14 +702,27 @@ async function viewExpenses(main) {
 // Notifications, security, settings
 // ---------------------------------------------------------------------------
 
+const NOTIF_ICON = {
+  escalation: ['circle-alert', 'bad'], customer_message: ['message-circle', 'info'], security: ['shield', 'bad'],
+  project_won: ['briefcase', 'good'], build_ready: ['eye', 'warn'], build_progress: ['cpu', ''], build_failed: ['triangle-alert', 'bad'],
+  customer_approved: ['circle-check', 'good'], changes_requested: ['pencil', 'warn'], payment_received: ['banknote', 'good'],
+  payment_overdue: ['clock', 'warn'], refund: ['hand-coins', 'warn'], lead_needs_admin: ['target', 'info'], daily_digest: ['calendar', ''],
+  monthly_report: ['file-text', ''], ai_budget: ['cpu', 'warn'], job_failed: ['triangle-alert', 'bad'],
+};
+
 async function viewNotifications(main) {
   const list = await GET('/notifications');
-  main.innerHTML = `<div class="row"><h1>Bildirimler</h1><span class="spacer"></span><button id="all">Tümünü okundu yap</button></div>
-    <div class="card">${list.map((n) => `<div class="conv-item" data-id="${n.id}" data-link="${esc(n.link || '')}" style="${n.read ? 'opacity:.6' : ''}">
-      <div class="row"><b>${esc(n.subject)}</b><span class="spacer"></span>${n.emailed ? '<span class="pill">e-posta gönderildi</span>' : ''}<span class="muted">${date(n.created_at)}</span></div>
-      <div class="markdown muted">${esc(n.body)}</div></div>`).join('') || '<p class="muted">Bildirim yok</p>'}</div>`;
+  main.innerHTML = `<div class="row"><div><h1>Bildirimler</h1><div class="muted">${list.filter((n) => !n.read).length} okunmamış</div></div><span class="spacer"></span><button id="all">${icon('check')} Tümünü okundu yap</button></div>
+    <div class="card" style="padding:6px">${list.map((n) => {
+      const [ic, tone] = NOTIF_ICON[n.type] || ['bell', ''];
+      return `<div class="notif ${n.read ? 'read' : ''}" data-id="${n.id}" data-link="${esc(n.link || '')}">
+        <span class="tile-icon ${tone}">${icon(ic)}</span>
+        <div class="body"><div class="top"><b>${esc(n.subject)}</b><span class="muted">${date(n.created_at)}</span></div>
+        <div class="text">${esc(n.body)}</div>${n.emailed ? `<span class="pill info">${icon('mail', 'sm')} e-posta gönderildi</span>` : ''}</div>
+      </div>`;
+    }).join('') || empty('Bildirim yok', 'Önemli bir şey olduğunda burada ve e-postanızda görünecek.', 'bell')}</div>`;
   $('#all').onclick = () => act(() => POST('/notifications/read-all')).then(route);
-  $$('.conv-item').forEach((el) => { el.onclick = async () => {
+  $$('.notif').forEach((el) => { el.onclick = async () => {
     await POST(`/notifications/${el.dataset.id}/read`).catch(() => {});
     if (el.dataset.link) location.hash = `#${el.dataset.link}`; else route();
   }; });
@@ -612,7 +738,7 @@ async function viewSecurity(main) {
     ? `<p><span class="pill good">Açık</span> Girişte şifrenizden sonra doğrulama uygulamanızdaki kod istenir.</p>
        <div class="row"><button id="newCodes">Yeni kurtarma kodları oluştur</button><button class="danger" id="disable2fa">2FA'yı kapat</button></div>`
     : `<p><span class="pill warn">Kapalı</span> Hesabınızı şifre çalınmasına karşı korumak için Google Authenticator, Microsoft Authenticator veya Authy gibi bir uygulamayla iki adımlı doğrulamayı açın.</p>
-       <button class="primary" id="setup2fa">2FA kurulumunu başlat</button>`}
+       <button class="primary" id="setup2fa">${icon('shield-check')} 2FA kurulumunu başlat</button>`}
     <div id="twofaBody"></div></div>
   <div class="card"><h2>Şifre değiştir</h2><form id="pw" class="form-grid">
     <label>Mevcut şifre<input type="password" name="current" required autocomplete="current-password"></label>
@@ -626,7 +752,7 @@ async function viewSecurity(main) {
       <td>${!x.revoked_at && x.id !== sessions.current && new Date(x.expires_at) > new Date() ? `<button class="danger" data-revoke="${x.id}">Sonlandır</button>` : ''}</td></tr>`).join('')}</table></div>
   ${events ? `<div class="card table-wrap"><div class="row"><h2>Giriş / çıkış kayıtları</h2><span class="spacer"></span>
       <label class="check" style="margin:0"><input type="checkbox" id="susp" ${sessionStorage.getItem('suspOnly') ? 'checked' : ''}>Sadece şüpheli olaylar</label>
-      <a class="btn" href="/api/backup">Veritabanı yedeği indir</a></div>
+      <a class="btn" href="/api/backup">${icon('download')} Veritabanı yedeği indir</a></div>
     <table><tr><th>Zaman</th><th>Olay</th><th>E-posta</th><th>IP</th><th>Tarayıcı</th><th>Not</th></tr>
     ${events.map((e) => `<tr><td>${date(e.created_at)}</td><td>${pill(e.event)} ${e.suspicious ? '<span class="pill bad">Şüpheli</span>' : ''}</td><td>${esc(e.email || '')}</td><td>${esc(e.ip || '')}</td><td class="muted">${esc((e.user_agent || '').slice(0, 60))}</td><td>${esc(e.detail || '')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Kayıt yok</td></tr>'}</table></div>` : ''}`;
 
@@ -729,7 +855,7 @@ async function viewJobs(main) {
       <td>${j.last_run_at ? `${date(j.last_run_at)} ${pill(j.last_status)}<div class="muted">${esc(j.last_message || '')}</div>` : '<span class="muted">Henüz çalışmadı</span>'}</td>
       <td>${fmtNext(j)}</td>
       <td><input type="checkbox" data-toggle="${j.name}" ${j.enabled ? 'checked' : ''}></td>
-      <td><button data-run="${j.name}" ${j.running ? 'disabled' : ''}>${j.running ? 'Çalışıyor…' : 'Şimdi çalıştır'}</button></td></tr>
+      <td><button data-run="${j.name}" ${j.running ? 'disabled' : ''}>${icon('play')} ${j.running ? 'Çalışıyor…' : 'Çalıştır'}</button></td></tr>
       <tr id="edit-${j.name}" hidden><td colspan="6"><form class="row" data-form="${j.name}">
         <select name="type" style="width:auto">${[['interval', 'Aralıklı'], ['daily', 'Her gün'], ['monthly', 'Her ay']].map(([k, v]) => `<option value="${k}" ${j.schedule.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <label class="check" style="margin:0">Dakika<input name="minutes" type="number" min="1" value="${j.schedule.minutes || 60}" style="width:90px"></label>

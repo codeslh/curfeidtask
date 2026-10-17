@@ -20,6 +20,10 @@ Freelancerlar için yapay zeka destekli CRM + otomatik yazılım üretim sistemi
 | Güvenlik | İki adımlı doğrulama (QR + kurtarma kodları), roller (Yönetici / Operatör / İzleyici), denetim kaydı, şifremi unuttum, oturum yönetimi, IP izin listesi, hız sınırları, şüpheli işlem uyarıları, yedek ve CSV — ayrıntılar aşağıda |
 | Zamanlanmış görevler | 10 otomatik görev: tarama, takip mesajı, ödeme hatırlatma, günlük özet, aylık PDF rapor, yedek, güvenlik taraması… — ayrıntılar aşağıda |
 
+## Arayüz
+
+Koyu kenar menülü, açık/koyu/sistem temalı (üst çubuktaki düğmeyle değişir) modern bir panel; mobilde açılır menü. Yazı tipi (Inter) ve ikonlar (Lucide) sunucunun kendisinden servis edilir, dışarıya istek atılmaz. Müşteri sohbet sayfası (`/chat`) "yazıyor…" göstergesi ve hızlı seçim düğmeleriyle bir sohbet penceresi görünümündedir.
+
 ## Güvenlik
 
 - **İki adımlı doğrulama (2FA):** Güvenlik sayfasından QR kodu Google/Microsoft Authenticator veya Authy ile okutun. Girişte şifreden sonra 6 haneli kod istenir; kullanılmış kod tekrar kabul edilmez. 8 adet tek kullanımlık kurtarma kodu verilir. Ayarlar'dan yöneticiler için 2FA zorunlu yapılabilir.
@@ -98,6 +102,7 @@ src/
                payments.js, reports.js (istatistik, PDF), scanner.js, security.js,
                totp.js (2FA), ratelimit.js, scheduler.js + jobs.js (zamanlanmış görevler),
                notify.js (e-posta), whatsapp.js, settings.js, platforms/
-public/        index.html + app.js (admin paneli), chat.html + chat.js (müşteri sohbeti)
+public/        index.html + app.js (admin paneli), chat.html + chat.js + chat.css (müşteri sohbeti),
+               styles.css (tasarım sistemi: açık/koyu tema, Inter yazı tipi, Lucide ikonları)
 test/          uçtan uca testler
 ```

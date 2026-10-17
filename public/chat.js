@@ -7,7 +7,8 @@ try { token = localStorage.getItem('chatToken'); } catch {}
 let lastId = 0;
 
 const info = await fetch('/api/chat/info').then((r) => r.json());
-document.getElementById('title').textContent = `${info.business} · Canlı destek`;
+document.getElementById('title').textContent = info.business;
+document.title = `${info.business} · Canlı destek`;
 const chips = [
   ...info.shortcuts.themes.map((t) => [`Tema: ${t.name}`, `${t.name} temasını görmek istiyorum`]),
   ...info.shortcuts.languages.map((l) => [l.name, `Projemde ${l.name} kullanmak istiyorum`]),
@@ -21,11 +22,20 @@ function add(m) {
   lastId = m.id;
   const who = { customer: 'Siz', ai: info.business, admin: info.business }[m.sender] || '';
   const el = document.createElement('div');
-  el.className = `msg ${m.sender === 'customer' ? 'customer' : 'ai'}`;
-  el.style.alignSelf = m.sender === 'customer' ? 'flex-end' : 'flex-start';
+  el.className = `msg ${m.sender === 'customer' ? 'customer' : 'agent'}`;
   el.innerHTML = `<div class="who">${esc(who)}</div>${linkify(m.body)}`;
-  msgs.append(el);
+  msgs.insertBefore(el, typingEl.isConnected ? typingEl : null);
+  if (m.sender !== 'customer') typing(false);
   msgs.scrollTop = msgs.scrollHeight;
+}
+
+// "Typing…" bubble while we wait for the assistant's answer.
+const typingEl = document.createElement('div');
+typingEl.className = 'typing';
+typingEl.setAttribute('aria-label', 'Yazıyor');
+typingEl.innerHTML = '<span></span><span></span><span></span>';
+function typing(on) {
+  if (on) { msgs.append(typingEl); msgs.scrollTop = msgs.scrollHeight; } else typingEl.remove();
 }
 
 async function poll() {
@@ -39,8 +49,22 @@ async function send(text) {
   text = text.trim();
   if (!text) return;
   document.getElementById('text').value = '';
-  await post(`/api/chat/${token}/messages`, { text });
+  // Show the message right away; the server copy replaces it on the next poll.
+  const pending = document.createElement('div');
+  pending.className = 'msg customer';
+  pending.innerHTML = `<div class="who">Siz</div>${linkify(text)}`;
+  msgs.append(pending);
+  typing(true);
+  const r = await post(`/api/chat/${token}/messages`, { text }).catch(() => ({ error: 'Mesaj gönderilemedi, tekrar deneyin.' }));
+  pending.remove();
+  if (r.reply === null || r.error) typing(false); // a human will answer, or the send failed
   await poll();
+  if (r.error) {
+    const el = document.createElement('div');
+    el.className = 'msg system';
+    el.textContent = r.error;
+    msgs.append(el);
+  }
 }
 
 function showStart() { document.getElementById('start').hidden = false; document.getElementById('chat').hidden = true; }

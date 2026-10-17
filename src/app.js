@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { config, ROOT } from './config.js';
 import { router as adminRouter } from './routes/admin.js';
+import { router as assetsRouter } from './routes/assets.js';
 import { router as authRouter } from './routes/auth.js';
 import { router as publicRouter } from './routes/public.js';
 
@@ -33,6 +34,7 @@ export function createApp() {
     next();
   });
 
+  app.use(assetsRouter);
   app.use(publicRouter);
   app.use('/api/auth', authRouter);
   app.use('/api', adminRouter);

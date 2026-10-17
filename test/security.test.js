@@ -217,6 +217,16 @@ describe('denetim kaydı, oturum ve erişim kuralları', () => {
     assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
   });
 
+  test('ikon ve yazı tipi dosyaları sunulur', async () => {
+    const sprite = await fetch(`${base}/assets/icons.svg`);
+    assert.equal(sprite.headers.get('content-type'), 'image/svg+xml; charset=utf-8');
+    const svg = await sprite.text();
+    for (const id of ['sparkles', 'layout-dashboard', 'shield-check', 'triangle-alert']) assert.match(svg, new RegExp(`<symbol id="${id}"`));
+    const font = await fetch(`${base}/assets/fonts/inter-latin-ext-wght-normal.woff2`);
+    assert.equal(font.status, 200);
+    assert.equal((await fetch(`${base}/assets/fonts/../../package.json`)).status, 404);
+  });
+
   test('müşteri sohbeti hız sınırına takılır', async () => {
     resetRateLimits();
     const c = client(base);
