@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canlı Destek</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%224%22 fill=%22%232a78d6%22/%3E%3C/svg%3E">
+  <style>
+    body { display: flex; justify-content: center; }
+    .wrap { width: 100%; max-width: 640px; padding: 16px; }
+    .messages { height: calc(100vh - 260px); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 id="title">Canlı destek</h1>
+      <form id="start">
+        <p class="muted">Size nasıl yardımcı olabiliriz? Sohbete başlamak için bilgilerinizi girin.</p>
+        <label>Adınız<input name="name" required></label>
+        <label>E-posta (isteğe bağlı)<input name="email" type="email"></label>
+        <button class="primary">Sohbete başla</button>
+      </form>
+      <div id="chat" hidden>
+        <div class="messages" id="msgs"></div>
+        <div class="shortcuts" id="sc"></div>
+        <form id="send" class="row"><input id="text" placeholder="Mesajınızı yazın..." autocomplete="off" style="flex:1"><button class="primary">Gönder</button></form>
+      </div>
+    </div>
+  </div>
+  <script type="module">
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+    const msgs = document.getElementById('msgs');
+    let token = null;
+    try { token = localStorage.getItem('chatToken'); } catch {}
+    let lastId = 0;
+
+    const info = await fetch('/api/chat/info').then((r) => r.json());
+    document.getElementById('title').textContent = `${info.business} · Canlı destek`;
+    const chips = [
+      ...info.shortcuts.themes.map((t) => [`Tema: ${t.name}`, `${t.name} temasını görmek istiyorum`]),
+      ...info.shortcuts.languages.map((l) => [l.name, `Projemde ${l.name} kullanmak istiyorum`]),
+      ['Fiyatlar', 'Fiyatlarınızı öğrenebilir miyim?'],
+    ];
+    document.getElementById('sc').innerHTML = chips.map(([label, text]) => `<button class="chip" data-text="${esc(text)}">${esc(label)}</button>`).join('');
+    document.querySelectorAll('.chip').forEach((b) => { b.onclick = () => send(b.dataset.text); });
+
+    function add(m) {
+      if (m.id <= lastId) return;
+      lastId = m.id;
+      const who = { customer: 'Siz', ai: info.business, admin: info.business }[m.sender] || '';
+      const el = document.createElement('div');
+      el.className = `msg ${m.sender === 'customer' ? 'customer' : 'ai'}`;
+      el.style.alignSelf = m.sender === 'customer' ? 'flex-end' : 'flex-start';
+      el.innerHTML = `<div class="who">${esc(who)}</div>${linkify(m.body)}`;
+      msgs.append(el);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    async function poll() {
+      if (!token) return;
+      const r = await fetch(`/api/chat/${token}/messages?after=${lastId}`);
+      if (r.status === 404) { token = null; try { localStorage.removeItem('chatToken'); } catch {} return showStart(); }
+      (await r.json()).messages.forEach(add);
+    }
+
+    async function send(text) {
+      text = text.trim();
+      if (!text) return;
+      document.getElementById('text').value = '';
+      await post(`/api/chat/${token}/messages`, { text });
+      await poll();
+    }
+
+    function showStart() { document.getElementById('start').hidden = false; document.getElementById('chat').hidden = true; }
+    function showChat() { document.getElementById('start').hidden = true; document.getElementById('chat').hidden = false; poll(); }
+
+    document.getElementById('start').onsubmit = async (e) => {
+      e.preventDefault();
+      token = (await post('/api/chat/start', Object.fromEntries(new FormData(e.target)))).token;
+      try { localStorage.setItem('chatToken', token); } catch {}
+      showChat();
+      send('Merhaba');
+    };
+    document.getElementById('send').onsubmit = (e) => { e.preventDefault(); send(document.getElementById('text').value); };
+    if (token) showChat();
+    setInterval(() => poll().catch(() => {}), 3000);
+  </script>
+</body>
+</html>

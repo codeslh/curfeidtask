@@ -1,58 +1,74 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Freelance Otomasyon
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Freelancerlar için yapay zeka destekli CRM + otomatik yazılım üretim sistemi.
 
-## About Laravel
+**1. Bölüm – Yapay zekalı CRM:** WhatsApp/web sohbetinden gelen müşterilere yapay zeka bir satış temsilcisi gibi cevap verir, fiyat tablosuna göre fiyat verir, örnek ürünleri gösterir. Müşteri memnun kalmazsa, yetkili isterse, yapay zekanın token bütçesi/kredisi biterse veya bir hata olursa konuşma **admine aktarılır ve e-posta gönderilir**; admin konuşmayı panelden devralıp kendisi yönetir.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+**2. Bölüm – İş bulma ve otomatik üretim:** Freelancer platformları admin'in belirlediği kapsamda taranır. İlanda iletişim bilgisi varsa yapay zeka müşteriyle iletişime geçer, yoksa admine e-posta gider. İş alınınca yapay zeka istenen ürünü üretir, arada admine haber verir, bitince kontrole sunar. Admin düzeltme isterse yapay zeka yeni sürüm üretir. Onaylanan sürüm demo olarak internete yayınlanır, müşteriye gönderilir; müşteri beğenirse IBAN/ödeme bilgisi otomatik iletilir, ödeme alınınca fatura kesilir.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Özellikler
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Alan | Neler var |
+|---|---|
+| Satış asistanı | WhatsApp Cloud API webhook'u, web sohbet sayfası (`/chat`), fiyat tablosuna bağlı fiyatlandırma, indirim sınırı, örnek/demo linkleri, anlaşma sağlanınca otomatik proje açma |
+| Admine aktarma | Müşteri yetkili isterse, art arda memnuniyetsizlik, aylık token bütçesi dolarsa, API kredisi biterse / limit / hata / ret durumunda; admin "Konuşmayı devral" / "Yapay zekaya devret" |
+| Kısayollar | Temalar, programlama dilleri ve örnek ürünler hem admin sohbet ekranında hem müşteri sohbetinde tek tık kısayol |
+| Platform tarama | Demo, Freelancer.com (açık API), herhangi bir RSS beslemesi; anahtar kelime, hariç kelime, bütçe aralığı, para birimi, ilan yaşı, tarama başına limit |
+| Proje üretimi | Plan → kod üretimi (Claude), sürüm geçmişi, imzalı önizleme linkleri, admin düzeltme döngüsü, demo yayını (`/demo/...`), müşteri onayı / değişiklik talebi |
+| Ödeme | IBAN ile otomatik ödeme talebi (referans kodlu), isteğe bağlı Stripe kart ödemesi + webhook, ödeme geçmişi, kısmi/tam iade, satış ve iade faturaları (PDF) |
+| CRM / raporlar | Aylık net/brüt ciro, gider (yapay zeka maliyeti otomatik), kâr, yeni müşteri, dönüşüm, 12 aylık grafik, ürün performansı, yapay zeka durum değerlendirmesi ve çözüm önerileri, aylık PDF özet |
+| Güvenlik | Giriş/çıkış kayıtları, aktif oturumlar ve oturum sonlandırma, şifre değiştirme (diğer oturumlar kapanır), hatalı denemede kilit + e-posta, yeni IP uyarısı, IBAN/admin e-posta değişikliği uyarısı, iade kaydı |
 
-## Learning Laravel
+## Kurulum
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Gereksinim: **Node.js 22.13+** (yerleşik SQLite kullanılır, ayrı veritabanı kurmanız gerekmez).
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+npm install
+cp .env.example .env      # anahtarları doldurun
+npm run seed              # örnek ürün, tema ve dilleri ekler (isteğe bağlı)
+npm start                 # http://localhost:3000
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+İlk açılışta tarayıcıda yönetici hesabını oluşturursunuz (veya `.env` içinde `ADMIN_PASSWORD` verin).
+Ardından **Ayarlar** sayfasından IBAN, admin e-postası, yapay zeka ve tarama kapsamını girin; **Ürün & fiyatlar** sayfasından fiyat tablonuzu, temaları ve dilleri düzenleyin.
 
-## Contributing
+`ANTHROPIC_API_KEY` tanımlı değilse sistem **demo modunda** çalışır: yapay zeka yanıtları basit kurallarla üretilir, böylece tüm akışı ücretsiz deneyebilirsiniz.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Testler
 
-## Code of Conduct
+```bash
+npm test
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Testler demo modunda tüm akışı uçtan uca dener: sohbet → anlaşma → üretim → revizyon → demo → müşteri onayı → IBAN → ödeme → fatura → iade, admine aktarma, giriş kilidi, tarama kapsamı.
 
-## Security Vulnerabilities
+## Entegrasyonlar
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+- **Claude (yapay zeka):** `ANTHROPIC_API_KEY`. Varsayılan model `claude-opus-5-5`. Güvenlik nedeniyle reddedilen istekler sunucu tarafında otomatik yedek modele yönlendirilir (`fallbacks: "default"`). Token kullanımı ve maliyeti **Giderler** sayfasında görünür; aylık token bütçesi Ayarlar'dan sınırlanır.
+- **WhatsApp:** Meta Business'ta bir WhatsApp Cloud API uygulaması açın, webhook adresi `https://alanadiniz.com/webhooks/whatsapp`, doğrulama kelimesi `WHATSAPP_VERIFY_TOKEN`. `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET` girin.
+- **E-posta:** SMTP bilgileri. Girilmezse bildirimler konsola yazılır ve panelde görünmeye devam eder.
+- **Stripe (isteğe bağlı):** Ayarlar → Ödeme → "Stripe" seçin, `STRIPE_SECRET_KEY` ve webhook (`/webhooks/stripe`, olay: `checkout.session.completed`) için `STRIPE_WEBHOOK_SECRET` girin. Para doğrudan sizin Stripe hesabınıza gelir. Havale/EFT ödemelerini panelden "Ödendi işaretle" ile onaylarsınız.
+- **Platformlar:** `src/services/platforms/` altına `{ name, label, fetchLeads(scope) }` biçiminde yeni bir dosya ekleyip `index.js`'e kaydederek yeni platform eklenebilir.
 
-## License
+## Bilmeniz gerekenler
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+- **Platform kuralları:** Upwork, Fiverr, Bionluk gibi platformların çoğu otomatik tarama ve platform dışı iletişimi yasaklar. Hazır gelen adaptörler yalnızca açık API (Freelancer.com) ve RSS kullanır; platform üzerinden mesajlaşma gereken ilanlar admine bırakılır. Yeni bir adaptör eklerken ilgili platformun kullanım şartlarına uyun.
+- **Fatura:** Sistem fatura belgesi (PDF) üretir ama resmi e-Fatura/e-Arşiv değildir; yasal yükümlülükler için bir entegratör kullanın.
+- **Havale iadeleri:** IBAN ile alınan bir ödemeyi iade ettiğinizde sistem kaydı ve iade belgesini oluşturur, parayı bankanızdan sizin göndermeniz gerekir. Stripe ödemelerinde iade otomatik yapılır.
+- **Demolar:** Yapay zekanın ürettiği siteler `sandbox` CSP başlığıyla sunulur; panelin oturum çerezlerine erişemezler. Dilerseniz `PUBLIC_URL` için ayrı bir alt alan adı kullanın.
+- **Yedekleme:** Tüm veriler `DATA_DIR` (varsayılan `data/`) klasöründedir; düzenli yedekleyin.
+- **Sunucu gerektiren projeler** (Laravel, Django vb.): yapay zeka kaynak kodunu ve statik bir önizlemeyi üretir; canlı sunucuya kurulumu admin yapar.
+
+## Proje yapısı
+
+```
+src/
+  server.js, app.js, config.js, db.js, seed.js
+  routes/      auth.js, admin.js (panel API), public.js (webhook, sohbet, demo)
+  services/    ai.js (Claude), sales.js (satış asistanı), projects.js (üretim/demo),
+               payments.js, reports.js (istatistik, PDF), scanner.js, security.js,
+               notify.js (e-posta), whatsapp.js, settings.js, platforms/
+public/        index.html + app.js (admin paneli), chat.html (müşteri sohbeti)
+test/          uçtan uca testler
+```
