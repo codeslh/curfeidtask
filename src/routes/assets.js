@@ -13,6 +13,8 @@ const ICONS = [
   'check', 'x', 'triangle-alert', 'file-text', 'lock', 'key-round', 'menu', 'chevron-right', 'plus', 'refresh-cw', 'eye',
   'rocket', 'credit-card', 'coins', 'calendar', 'inbox', 'history', 'filter', 'shield-check', 'zap', 'message-square-text',
   'cpu', 'percent', 'external-link', 'trash-2', 'pencil', 'circle-check', 'circle-alert', 'mail', 'phone', 'globe', 'hand-coins',
+  'command', 'panel-left', 'kanban', 'list', 'layout-grid', 'arrow-up-right', 'arrow-down-right', 'activity', 'corner-down-left',
+  'arrow-up', 'arrow-down', 'user', 'sparkle', 'wand-sparkles', 'chart-no-axes-column', 'funnel', 'circle-dot', 'loader',
 ];
 
 let sprite;
@@ -32,4 +34,6 @@ router.get('/assets/icons.svg', (_req, res) => {
   res.type('image/svg+xml').set('Cache-Control', 'public, max-age=86400').send(sprite);
 });
 
-router.use('/assets/fonts', express.static(path.join(ROOT, 'node_modules', '@fontsource-variable', 'inter', 'files'), { maxAge: '30d', immutable: true }));
+const fontOpts = { maxAge: '30d', immutable: true };
+router.use('/assets/fonts/geist', express.static(path.join(ROOT, 'node_modules', 'geist', 'dist', 'fonts', 'geist-sans'), fontOpts));
+router.use('/assets/fonts/geist-mono', express.static(path.join(ROOT, 'node_modules', 'geist', 'dist', 'fonts', 'geist-mono'), fontOpts));

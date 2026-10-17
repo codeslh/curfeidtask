@@ -221,8 +221,8 @@ describe('denetim kaydı, oturum ve erişim kuralları', () => {
     const sprite = await fetch(`${base}/assets/icons.svg`);
     assert.equal(sprite.headers.get('content-type'), 'image/svg+xml; charset=utf-8');
     const svg = await sprite.text();
-    for (const id of ['sparkles', 'layout-dashboard', 'shield-check', 'triangle-alert']) assert.match(svg, new RegExp(`<symbol id="${id}"`));
-    const font = await fetch(`${base}/assets/fonts/inter-latin-ext-wght-normal.woff2`);
+    for (const id of ['sparkles', 'layout-dashboard', 'shield-check', 'triangle-alert', 'kanban', 'command']) assert.match(svg, new RegExp(`<symbol id="${id}"`));
+    const font = await fetch(`${base}/assets/fonts/geist/Geist-Variable.woff2`);
     assert.equal(font.status, 200);
     assert.equal((await fetch(`${base}/assets/fonts/../../package.json`)).status, 404);
   });

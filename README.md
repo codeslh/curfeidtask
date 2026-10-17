@@ -22,7 +22,15 @@ Freelancerlar için yapay zeka destekli CRM + otomatik yazılım üretim sistemi
 
 ## Arayüz
 
-Koyu kenar menülü, açık/koyu/sistem temalı (üst çubuktaki düğmeyle değişir) modern bir panel; mobilde açılır menü. Yazı tipi (Inter) ve ikonlar (Lucide) sunucunun kendisinden servis edilir, dışarıya istek atılmaz. Müşteri sohbet sayfası (`/chat`) "yazıyor…" göstergesi ve hızlı seçim düğmeleriyle bir sohbet penceresi görünümündedir.
+Modern, çerçevesiz (Bootstrap vb. kullanılmadan) kendi tasarım sistemiyle yazılmış bir panel:
+
+- **Görsel dil:** Geist yazı tipi, nötr tonlar, yalnızca yapay zeka öğelerinde kullanılan mor vurgu; uygulama yumuşak bir zemin üzerinde yüzen bir yüzeyde durur. Açık / koyu / sistem teması.
+- **⌘K / Ctrl+K komut paleti:** sayfalara, müşterilere, projelere ve konuşmalara arayarak gidin; "Şimdi tara", "Yeni proje", "Yapay zeka analizi", tema değiştirme gibi komutları klavyeden çalıştırın. `/` tuşu sayfadaki aramaya odaklanır.
+- **Genel bakış:** önceki aya göre değişim yüzdeli kartlar, ciro alan grafiği, ciro/gider grafiği, satış hunisi, proje hattı, son etkinlikler ve yapay zeka içgörü kartı.
+- **Konuşmalar:** gelen kutusu + sohbet + müşteri bilgi paneli; Enter ile gönderme, tema/dil/ürün kısayolları.
+- **Projeler:** Kanban panosu veya liste; proje sayfasında aşama göstergesi, "sıradaki adım" kartı, yapay zekaya düzeltme gönderme, sürümler ve geçmiş.
+- **İş ilanları ve katalog** kart görünümünde; tüm listelerde anlık arama; onay ve formlar için modal pencereler; daraltılabilir menü; mobil uyumlu.
+- Yazı tipi ve ikonlar (Lucide) sunucudan servis edilir, dışarıya istek atılmaz. Müşteri sohbet sayfası (`/chat`) aynı tasarım dilindedir.
 
 ## Güvenlik
 
@@ -102,7 +110,7 @@ src/
                payments.js, reports.js (istatistik, PDF), scanner.js, security.js,
                totp.js (2FA), ratelimit.js, scheduler.js + jobs.js (zamanlanmış görevler),
                notify.js (e-posta), whatsapp.js, settings.js, platforms/
-public/        index.html + app.js (admin paneli), chat.html + chat.js + chat.css (müşteri sohbeti),
-               styles.css (tasarım sistemi: açık/koyu tema, Inter yazı tipi, Lucide ikonları)
+public/        index.html + js/ (admin paneli: core, charts, shell + komut paleti, views/*),
+               styles.css (tasarım sistemi), chat.html + chat.js + chat.css (müşteri sohbeti)
 test/          uçtan uca testler
 ```

@@ -25,7 +25,7 @@ export function createApp() {
     if (config.publicUrl.startsWith('https://')) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     // Panel pages only load our own scripts; demos/previews set their own sandbox CSP.
     if (!/^\/(demo|preview)\//.test(req.path)) {
-      res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
+      res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
     }
     // Browsers only send JSON from scripts; refusing other content types blocks form-based CSRF.
     if (req.path.startsWith('/api/') && !['GET', 'HEAD'].includes(req.method) && !req.is('application/json')) {
