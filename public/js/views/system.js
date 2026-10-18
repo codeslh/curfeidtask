@@ -277,10 +277,13 @@ const SETTINGS = {
     ['website', 'Web siteniz / portfolyonuz'], ['timezone', 'Saat dilimi'], ['base_currency', 'Ana para birimi'],
     ['fx_rates', 'Döviz kurları (1 birim = ? ana para; bütçe filtresi için)', 'json'],
   ]],
-  scanner: ['İş ilanları', 'target', 'Hangi ilanların uygun sayılacağı', [
-    ['keywords', 'Anahtar kelimeler (biri geçmeli)', 'list'], ['exclude_keywords', 'Hariç kelimeler', 'list'],
-    ['min_budget', 'En düşük bütçe (ana para)', 'number'], ['max_budget', 'En yüksek bütçe (0 = sınırsız)', 'number'], ['currencies', 'Para birimleri (boş = hepsi)', 'list'],
-    ['max_age_hours', 'En fazla ilan yaşı (saat)', 'number'], ['max_leads_per_scan', 'Kaynak başına en fazla ilan', 'number'],
+  scanner: ['İlanlar', 'target', 'Kategoriler, konum ve filtreler', [
+    ['freelance_categories', 'Freelance işler — kategoriler (hiçbiri = hepsi)', 'categories'],
+    ['job_categories', 'İş ilanları — kategoriler (hiçbiri = hepsi)', 'categories'],
+    ['job_locations', 'İş ilanları — konum (ör. İstanbul, Uzaktan; boş = her yer)', 'list'], ['job_max_age_days', 'İş ilanı en fazla kaç günlük olsun', 'number'],
+    ['extra_keywords', 'Ek kelimeler (isteğe bağlı; kategorilere ek olarak)', 'list'], ['exclude_keywords', 'Hariç kelimeler', 'list'],
+    ['min_budget', 'Freelance: en düşük bütçe (ana para)', 'number'], ['max_budget', 'Freelance: en yüksek bütçe (0 = sınırsız)', 'number'], ['currencies', 'Freelance: para birimleri (boş = hepsi)', 'list'],
+    ['max_age_hours', 'Freelance iş en fazla kaç saatlik olsun', 'number'], ['max_leads_per_scan', 'Kaynak başına en fazla ilan', 'number'],
     ['notify_new', 'Yeni uygun ilan bulununca e-postayla bildir', 'bool'],
     ['translate', 'Yabancı dildeki ilanları Türkçeye çevir', 'bool'], ['translate_max_chars', 'Açıklamanın en fazla kaç karakteri çevrilsin', 'number'],
   ]],
@@ -290,6 +293,8 @@ const SETTINGS = {
     ['prospect_old_site', 'İşletme — sitesi eski / zayıf', 'textarea'], ['prospect_subject', 'İşletme e-posta konusu'],
     ['lead_message', 'İş ilanı sahibine mesaj', 'textarea'], ['lead_subject', 'İlan e-posta konusu'],
     ['lead_message_en', 'Yabancı ilan sahibine mesaj (İngilizce)', 'textarea'], ['lead_subject_en', 'Yabancı ilan e-posta konusu'],
+    ['job_message', 'İş ilanı başvurusu — ön yazı', 'textarea'], ['job_subject', 'Başvuru e-posta konusu'],
+    ['job_message_en', 'Yabancı iş ilanı başvurusu (İngilizce)', 'textarea'], ['job_subject_en', 'Yabancı başvuru e-posta konusu'],
   ]],
   prospecting: ['Bölge taraması', 'radar', 'Konum, kategoriler ve gönderim kuralları', [
     ['location', 'Taranacak konum (semt, ilçe veya adres)'], ['radius_km', 'Yarıçap (km)', 'number'],
@@ -314,19 +319,21 @@ const SETTINGS = {
 
 const TEMPLATE_HELP = `<div class="callout info span-2">${icon('circle-dot', 'sm')}<span>Şablonlarda şu alanlar otomatik doldurulur:
   <code>{ad}</code> işletme / ilan sahibi adı, <code>{kategori}</code> işletme türü, <code>{bulgu}</code> site incelemesi bulguları,
-  <code>{ilan}</code> ilan başlığı, <code>{isletmem}</code> <code>{yetkili}</code> <code>{telefonum}</code> <code>{sitem}</code> sizin bilgileriniz.
+  <code>{ilan}</code> ilan başlığı, <code>{sirket}</code> iş ilanındaki şirket, <code>{isletmem}</code> <code>{yetkili}</code> <code>{telefonum}</code> <code>{sitem}</code> sizin bilgileriniz.
   İmza ve "İPTAL" cümlesi işletme mesajlarının sonuna ayrıca eklenir.</span></div>`;
 
 export async function viewSettings(main, sectionParam) {
   const section = SETTINGS[sectionParam] ? sectionParam : 'business';
-  const [settings, status, pros] = await Promise.all([
+  const [settings, status, pros, leadMeta] = await Promise.all([
     GET('/settings'), GET('/system/status'), section === 'prospecting' ? GET('/prospects') : Promise.resolve(null),
+    section === 'scanner' ? GET('/leads?kind=freelance') : Promise.resolve(null),
   ]);
   const [title, ic, desc, fields] = SETTINGS[section];
   const v = settings[section];
   const input = ([k, l, t]) => {
     const val = v[k];
     if (t === 'help') return TEMPLATE_HELP;
+    if (t === 'categories') return `<div class="field span-2">${l}<div class="choice-grid tight">${leadMeta.categories.map((c) => `<label class="choice"><input type="checkbox" data-catset="${k}" value="${c.key}" ${val.includes(c.key) ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div></div>`;
     if (t === 'bool') return `<div class="setting-row span-2"><div><b>${l}</b></div>${toggle(k, val)}</div>`;
     if (t === 'textarea') return field(k, l, { type: 'textarea', value: val, span: true, rows: 3 });
     if (t === 'json') return `<label class="field span-2">${l}<textarea name="${k}" class="mono" rows="4">${esc(JSON.stringify(val, null, 2))}</textarea></label>`;
@@ -358,6 +365,7 @@ export async function viewSettings(main, sectionParam) {
     try {
       for (const [k, , t] of fields) {
         if (t === 'help') continue;
+        if (t === 'categories') { data[k] = $$(`[data-catset="${k}"]:checked`, form).map((x) => x.value); continue; }
         if (t === 'prospect_categories') { data[k] = $$('[data-cat]:checked', form).map((x) => x.value); continue; }
         const el = form.elements[k];
         if (t === 'bool') data[k] = el.checked;

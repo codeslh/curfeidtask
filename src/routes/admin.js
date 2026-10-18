@@ -11,6 +11,7 @@ import * as scheduler from '../services/scheduler.js';
 import * as security from '../services/security.js';
 import { getSettings, saveSection } from '../services/settings.js';
 import * as sources from '../services/sources.js';
+import { CATEGORIES, categoryLabel } from '../services/categories.js';
 import * as translate from '../services/translate.js';
 import { whatsappApiReady } from '../services/whatsapp.js';
 import { asyncRoute, auditTrail, authorize, clientInfo, requireAuth } from './util.js';
@@ -36,6 +37,8 @@ router.get('/dashboard', (_req, res) => {
   res.json({
     kpis: {
       new_leads: n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'new'`),
+      new_freelance: n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'new' AND kind = 'freelance'`),
+      new_jobs: n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'new' AND kind = 'job'`),
       leads_today: n(`SELECT COUNT(*) AS n FROM leads WHERE status != 'filtered_out' AND date(created_at) = date('now')`),
       hot_prospects: n(`SELECT COUNT(*) AS n FROM prospects WHERE status = 'analyzed' AND score >= ?`, minScore),
       contacted_week: n(`SELECT COUNT(*) AS n FROM leads WHERE contacted_at >= ?`, new Date(Date.now() - 7 * 864e5).toISOString())
@@ -52,7 +55,7 @@ router.get('/dashboard', (_req, res) => {
     },
     days,
     by_platform: all(`SELECT platform, COUNT(*) AS n FROM leads WHERE status != 'filtered_out' AND created_at >= datetime('now', '-30 days') GROUP BY platform ORDER BY n DESC`),
-    top_leads: all(`SELECT id, title, platform, score, budget_max, currency, created_at FROM leads WHERE status = 'new' ORDER BY score DESC, id DESC LIMIT 6`),
+    top_leads: all(`SELECT id, kind, title, title_tr, company, platform, score, budget_max, currency, created_at FROM leads WHERE status = 'new' ORDER BY score DESC, id DESC LIMIT 6`),
     top_prospects: all(`SELECT id, name, category, score FROM prospects WHERE status = 'analyzed' ORDER BY score DESC LIMIT 6`)
       .map((p) => ({ ...p, category_label: prospecting.CATEGORIES[p.category]?.label || p.category })),
     sources: all('SELECT id, name, platform, kind, enabled, last_run_at, last_status, last_message FROM sources ORDER BY id'),
@@ -195,6 +198,7 @@ router.put('/customers/:id', (req, res) => {
 
 router.get('/sources', (_req, res) => res.json({
   platforms: sources.PLATFORMS,
+  kinds: sources.KINDS,
   sources: all('SELECT * FROM sources ORDER BY id'),
   scanning: sources.isScanning(),
 }));
@@ -206,8 +210,9 @@ router.post('/sources', (req, res) => {
   try { url = new URL(String(b.url || '').trim()); } catch { return res.status(400).json({ error: 'Geçerli bir adres girin (https://...)' }); }
   if (!['http:', 'https:'].includes(url.protocol)) return res.status(400).json({ error: 'Adres http(s) ile başlamalı' });
   const platform = sources.PLATFORMS[b.platform] ? b.platform : sources.detectPlatform(url.href);
-  const newId = Number(run(`INSERT INTO sources (kind, platform, name, url, link_pattern, enabled) VALUES (?, ?, ?, ?, ?, 1)`,
-    kind, platform, String(b.name || '').trim() || `${sources.PLATFORMS[platform].label} — ${url.hostname}`, url.href, String(b.link_pattern || '').trim() || null).lastInsertRowid);
+  const leadKind = LEAD_KINDS.includes(b.lead_kind) ? b.lead_kind : sources.PLATFORMS[platform].kind || 'freelance';
+  const newId = Number(run(`INSERT INTO sources (kind, platform, lead_kind, name, url, link_pattern, enabled) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+    kind, platform, leadKind, String(b.name || '').trim() || `${sources.PLATFORMS[platform].label} — ${url.hostname}`, url.href, String(b.link_pattern || '').trim() || null).lastInsertRowid);
   res.json(get('SELECT * FROM sources WHERE id = ?', newId));
 });
 router.put('/sources/:id', (req, res) => {
@@ -216,6 +221,7 @@ router.put('/sources/:id', (req, res) => {
   if (b.enabled !== undefined) patch.enabled = b.enabled ? 1 : 0;
   if (b.name !== undefined) patch.name = String(b.name).trim();
   if (b.link_pattern !== undefined) patch.link_pattern = String(b.link_pattern).trim() || null;
+  if (LEAD_KINDS.includes(b.lead_kind)) patch.lead_kind = b.lead_kind;
   update('sources', id(req), patch);
   res.json(get('SELECT * FROM sources WHERE id = ?', id(req)));
 });
@@ -233,23 +239,44 @@ router.post('/sources/:id/scan', asyncRoute(async (req, res) => res.json(await s
 // --- Leads -------------------------------------------------------------------------------------
 
 const LEAD_STATUSES = ['new', 'filtered_out', 'contacted', 'replied', 'won', 'lost', 'ignored'];
+const LEAD_KINDS = ['freelance', 'job'];
+const categoryList = () => Object.entries(CATEGORIES).map(([key, c]) => ({ key, label: c.label }));
 const leadRow = (l) => {
   const contact = JSON.parse(l.contact || '{}');
   const message = sources.leadMessage(l);
   return {
     ...l, contact, platform_label: sources.PLATFORMS[l.platform]?.label || l.platform, message, whatsapp_link: sources.whatsappLeadLink(l, message),
     foreign: translate.needsTranslation(l.lang),
+    category_label: l.category ? categoryLabel(l.category) : null,
+    category_labels: (l.categories || '').split(',').filter(Boolean).map(categoryLabel),
   };
 };
 router.get('/leads', (req, res) => {
   const status = LEAD_STATUSES.includes(req.query.status) ? req.query.status : null;
+  const kind = LEAD_KINDS.includes(req.query.kind) ? req.query.kind : 'freelance';
+  const scanner = getSettings().scanner;
   res.json({
-    leads: all(`SELECT * FROM leads ${status ? 'WHERE status = ?' : `WHERE status != 'filtered_out'`} ORDER BY CASE status WHEN 'new' THEN 0 ELSE 1 END, created_at DESC, score DESC LIMIT 500`, ...(status ? [status] : [])).map(leadRow),
-    counts: Object.fromEntries(all('SELECT status, COUNT(*) AS n FROM leads GROUP BY status').map((r) => [r.status, r.n])),
+    kind,
+    leads: all(`SELECT * FROM leads WHERE kind = ? AND ${status ? 'status = ?' : `status != 'filtered_out'`}
+      ORDER BY CASE status WHEN 'new' THEN 0 ELSE 1 END, created_at DESC, score DESC LIMIT 500`, kind, ...(status ? [status] : [])).map(leadRow),
+    counts: Object.fromEntries(all('SELECT status, COUNT(*) AS n FROM leads WHERE kind = ? GROUP BY status', kind).map((r) => [r.status, r.n])),
+    categories: categoryList(),
+    selected: kind === 'job' ? scanner.job_categories : scanner.freelance_categories,
+    locations: scanner.job_locations,
     smtp: Boolean(config.smtp.host),
     scanning: sources.isScanning(),
     platforms: sources.PLATFORMS,
   });
+});
+// Category picker on the listing pages (operators may change it too).
+router.put('/leads/categories', (req, res) => {
+  const kind = LEAD_KINDS.includes(req.body?.kind) ? req.body.kind : null;
+  if (!kind) return res.status(400).json({ error: 'Tür freelance veya job olmalı' });
+  const cats = [].concat(req.body?.categories || []).filter((c) => CATEGORIES[c]);
+  const patch = { [kind === 'job' ? 'job_categories' : 'freelance_categories']: cats };
+  if (kind === 'job' && req.body?.locations !== undefined) patch.job_locations = [].concat(req.body.locations).map((x) => String(x).trim()).filter(Boolean);
+  saveSection('scanner', patch);
+  res.json({ ok: true, ...sources.refilterLeads() });
 });
 router.get('/leads/:id', (req, res) => {
   const lead = get('SELECT * FROM leads WHERE id = ?', id(req));
@@ -359,7 +386,7 @@ router.get('/backup', asyncRoute(async (req, res) => {
 }));
 
 const EXPORTS = {
-  leads: `SELECT id, platform, title, status, score, budget_min, budget_max, currency, url, client_name, contact, created_at, contacted_at, notes FROM leads WHERE status != 'filtered_out' ORDER BY id`,
+  leads: `SELECT id, kind, platform, category, title, title_tr, company, location, status, score, budget_min, budget_max, currency, salary, url, client_name, contact, created_at, contacted_at, notes FROM leads WHERE status != 'filtered_out' ORDER BY kind, id`,
   prospects: `SELECT id, name, category, address, phone, email, website, score, status, channel, created_at, contacted_at FROM prospects ORDER BY id`,
   customers: 'SELECT id, name, email, phone, platform, notes, created_at FROM customers ORDER BY id',
 };
@@ -393,6 +420,7 @@ router.put('/settings/:section', asyncRoute(async (req, res) => {
   // A new location must be geocoded again on the next scan.
   if (req.params.section === 'prospecting' && body.location !== undefined && body.location !== before?.location && body.lat === undefined) { body.lat = null; body.lng = null; }
   try { saved = saveSection(req.params.section, body); } catch (err) { return bad(res, err); }
+  if (req.params.section === 'scanner') sources.refilterLeads();
   const { ip, userAgent } = clientInfo(req);
   security.logEvent({ userId: req.session.user_id, email: req.session.email, event: 'settings_changed', ip, userAgent, detail: req.params.section });
   // Redirecting the admin's notifications is a classic account-takeover move: always alert.

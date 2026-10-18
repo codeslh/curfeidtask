@@ -34,7 +34,7 @@ export async function viewDashboard(main) {
   ${failing.length ? `<div class="callout warn">${icon('triangle-alert', 'sm')}<span><b>${failing.length} kaynak okunamadı:</b> ${failing.map((s) => esc(s.name)).join(', ')}. <a class="link" href="#/sources">Kaynaklara bakın</a></span></div>` : ''}
 
   <section class="bento">
-    ${kpi('İncelenmemiş ilan', k.new_leads, 'target', 'accent', `Bugün ${k.leads_today} yeni`, '#/leads')}
+    ${kpi('Yeni ilan', k.new_leads, 'target', 'accent', `${k.new_freelance} freelance · ${k.new_jobs} iş ilanı`, k.new_freelance || !k.new_jobs ? '#/leads' : '#/vacancies')}
     ${kpi('Sıcak işletme', k.hot_prospects, 'radar', 'info', 'Yazılmayı bekliyor', '#/prospects')}
     ${kpi('Bu hafta yazdığınız', k.contacted_week, 'send', 'good', 'İlan + işletme', '#/conversations')}
     ${kpi('Kazanılan', k.won, 'trophy', 'warn', `${k.waiting_reply} cevap bekliyor`, '#/leads')}
@@ -49,9 +49,9 @@ export async function viewDashboard(main) {
     </div>
 
     <div class="card span-5 flush">
-      <div class="card-head pad"><div><h2>Öne çıkan ilanlar</h2><p>Anahtar kelimelerinize en çok uyanlar</p></div><a class="btn sm ghost" href="#/leads">Tümü ${icon('arrow-up-right', 'xs')}</a></div>
-      ${d.top_leads.length ? `<ul class="mini-list">${d.top_leads.map((l) => `<li><a href="#/leads/${l.id}"><span class="score-dot">${l.score ?? '–'}</span>
-        <span class="ml-body"><b>${esc(l.title)}</b><small>${esc(l.platform)} · ${ago(l.created_at)}${l.budget_max ? ` · ${money(l.budget_max, l.currency || '')}` : ''}</small></span>${icon('chevron-right', 'sm')}</a></li>`).join('')}</ul>`
+      <div class="card-head pad"><div><h2>Öne çıkan ilanlar</h2><p>Kategorilerinize en çok uyanlar</p></div><a class="btn sm ghost" href="#/leads">Tümü ${icon('arrow-up-right', 'xs')}</a></div>
+      ${d.top_leads.length ? `<ul class="mini-list">${d.top_leads.map((l) => `<li><a href="#/${l.kind === 'job' ? 'vacancies' : 'leads'}/${l.id}"><span class="score-dot">${l.score ?? '–'}</span>
+        <span class="ml-body"><b>${esc(l.title_tr || l.title)}</b><small>${l.kind === 'job' ? 'İş ilanı' : 'Freelance'} · ${esc(l.company || l.platform)} · ${ago(l.created_at)}${l.budget_max ? ` · ${money(l.budget_max, l.currency || '')}` : ''}</small></span>${icon('chevron-right', 'sm')}</a></li>`).join('')}</ul>`
     : empty('Yeni ilan yok', 'Kaynak ekleyin veya "İlanları tara"ya basın.', 'target')}
     </div>
     <div class="card span-4 flush">

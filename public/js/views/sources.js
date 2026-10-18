@@ -14,14 +14,16 @@ function bookmarklet() {
   return `javascript:${encodeURIComponent(code)}`;
 }
 
-async function addSourceDialog({ platform = '', kind = 'page' } = {}, platforms) {
+async function addSourceDialog({ platform = '', kind = 'page', leadKind = '' } = {}, platforms) {
   const p = platforms[platform];
+  const lk = p?.kind || leadKind;
   const r = await modal({
     title: kind === 'rss' ? 'RSS beslemesi ekle' : `${p ? `${esc(p.label)}: ` : ''}Sayfa izle`,
     description: kind === 'rss' ? 'İş ilanı sitesinin RSS/Atom adresini yapıştırın.' : 'İlanların listelendiği sayfayı tarayıcınızda açın ve adres çubuğundaki adresi buraya yapıştırın. Kalfa her taramada bu sayfadaki yeni ilan bağlantılarını bulur.',
     submitText: 'Ekle',
     body: `<div class="form-grid">
       ${field('url', kind === 'rss' ? 'Besleme adresi' : 'Sayfa adresi', { required: true, placeholder: 'https://…', span: true, hint: p?.help || '' })}
+      ${p?.kind ? `<input type="hidden" name="lead_kind" value="${p.kind}">` : field('lead_kind', 'Bu kaynaktaki ilanlar', { options: [['freelance', 'Freelance işler'], ['job', 'İş ilanları (sigortalı / maaşlı)']], value: lk || 'freelance', span: true })}
       ${field('name', 'Ad (isteğe bağlı)', { placeholder: p ? `${p.label} — web tasarım ilanları` : 'ör. Web tasarım ilanları', span: true })}
       ${kind === 'page' ? field('link_pattern', 'Bağlantı filtresi (isteğe bağlı)', { placeholder: 'ör. /konu/ veya /ilan/', span: true, hint: 'Sadece adresinde bu metin geçen bağlantılar ilan sayılır. Boş bırakırsanız Kalfa başlığa benzeyen bağlantıları alır. Gelişmiş: /düzenli-ifade/' }) : ''}
       <input type="hidden" name="kind" value="${kind}"><input type="hidden" name="platform" value="${esc(platform)}"></div>`,
@@ -35,27 +37,9 @@ async function addSourceDialog({ platform = '', kind = 'page' } = {}, platforms)
 
 export async function viewSources(main, id) {
   const d = await GET('/sources');
-  const visible = Object.entries(d.platforms).filter(([k]) => !['rss', 'web', 'manual'].includes(k));
-  const byPlatform = (k) => d.sources.filter((s) => s.platform === k || (k === 'freelancer' && s.kind === 'freelancer_api'));
-
-  main.innerHTML = `${pageHeader({
-    title: 'Kaynaklar',
-    subtitle: 'İş ilanlarının geldiği siteler. Herkese açık sayfalar otomatik taranır; giriş gerektiren sitelerdeki ilanları tek tıkla yer imiyle kaydedersiniz.',
-    actions: `<button class="btn" id="addRss">${icon('rss', 'sm')} RSS ekle</button>
-      <button class="btn" id="addPage">${icon('plus', 'sm')} Sayfa izle</button>
-      <button class="btn primary" id="scanAll" ${d.scanning ? 'disabled' : ''}>${icon('refresh-cw', 'sm')} Hepsini tara</button>`,
-  })}
-
-  <div class="card bm-card">
-    <div class="bm-text"><span class="tile-icon warn">${icon('bookmark')}</span><div>
-      <h2>"Kalfa'ya ekle" yer imi</h2>
-      <p>Bionluk, Armut gibi giriş gerektiren sitelerde ilanı açın ve bu yer imine tıklayın: ilan, adresi ve (seçtiyseniz) metniyle birlikte Kalfa'ya kaydedilir.</p>
-      <ol class="small muted"><li>Tarayıcınızın yer imleri çubuğunu açın (Ctrl+Shift+B / ⌘+Shift+B).</li><li>Aşağıdaki düğmeyi sürükleyip yer imleri çubuğuna bırakın.</li><li>Bir ilanda açıklamayı fareyle seçip yer imine tıklayın.</li></ol></div></div>
-    <a class="btn ai bm-link" href="${bookmarklet()}" draggable="true" id="bm" title="Yer imleri çubuğuna sürükleyin">${icon('bookmark-plus', 'sm')} Kalfa'ya ekle</a>
-  </div>
-
-  <h2 class="section-title">Siteler</h2>
-  <div class="platform-grid">${visible.map(([k, p]) => {
+  const visible = (kind) => Object.entries(d.platforms).filter(([, p]) => p.kind === kind);
+  const byPlatform = (k) => d.sources.filter((s) => s.platform === k);
+  const card = ([k, p]) => {
     const [modeLabel, tone, ic] = MODE[p.mode];
     const mine = byPlatform(k);
     return `<article class="card platform-card">
@@ -67,12 +51,37 @@ export async function viewSources(main, id) {
         ${p.home ? `<a class="btn sm ghost" href="${esc(p.home)}" target="_blank" rel="noopener">${icon('external-link', 'xs')} Siteyi aç</a>` : ''}
         ${p.mode === 'page' ? `<button class="btn sm" data-add="${k}">${icon('plus', 'xs')} Sayfa ekle</button>` : ''}
       </div></article>`;
-  }).join('')}</div>
+  };
+  const describe = (s) => (s.kind === 'freelancer_api' ? 'Freelancer.com API · seçtiğiniz freelance kategorilerle arar'
+    : s.kind === 'remotive_api' ? 'Remotive API · seçtiğiniz iş kategorilerine göre uzaktan ilanlar (6 saatte bir)'
+      : `${s.kind === 'rss' ? 'RSS' : 'Sayfa'} · ${esc(s.url)}`);
+
+  main.innerHTML = `${pageHeader({
+    title: 'Kaynaklar',
+    subtitle: 'Freelance işlerin ve iş ilanlarının geldiği siteler. Herkese açık sayfalar otomatik taranır; giriş gerektiren sitelerdeki ilanları tek tıkla yer imiyle kaydedersiniz.',
+    actions: `<button class="btn" id="addRss">${icon('rss', 'sm')} RSS ekle</button>
+      <button class="btn" id="addPage">${icon('plus', 'sm')} Sayfa izle</button>
+      <button class="btn primary" id="scanAll" ${d.scanning ? 'disabled' : ''}>${icon('refresh-cw', 'sm')} Hepsini tara</button>`,
+  })}
+
+  <div class="card bm-card">
+    <div class="bm-text"><span class="tile-icon warn">${icon('bookmark')}</span><div>
+      <h2>"Kalfa'ya ekle" yer imi</h2>
+      <p>Bionluk, Armut, LinkedIn, Indeed gibi giriş gerektiren sitelerde ilanı açın ve bu yer imine tıklayın: ilan, adresi ve (seçtiyseniz) metniyle birlikte Kalfa'ya kaydedilir. Freelance mi iş ilanı mı olduğu siteden anlaşılır.</p>
+      <ol class="small muted"><li>Tarayıcınızın yer imleri çubuğunu açın (Ctrl+Shift+B / ⌘+Shift+B).</li><li>Aşağıdaki düğmeyi sürükleyip yer imleri çubuğuna bırakın.</li><li>Bir ilanda açıklamayı fareyle seçip yer imine tıklayın.</li></ol></div></div>
+    <a class="btn ai bm-link" href="${bookmarklet()}" draggable="true" id="bm" title="Yer imleri çubuğuna sürükleyin">${icon('bookmark-plus', 'sm')} Kalfa'ya ekle</a>
+  </div>
+
+  <h2 class="section-title">${icon('target', 'sm')} Freelance siteler</h2>
+  <div class="platform-grid">${visible('freelance').map(card).join('')}</div>
+
+  <h2 class="section-title">${icon('briefcase', 'sm')} İş ilanı siteleri (sigortalı / maaşlı)</h2>
+  <div class="platform-grid">${visible('job').map(card).join('')}</div>
 
   <h2 class="section-title">Taranan kaynaklar</h2>
   <div class="card flush">${d.sources.length ? `<table class="table"><thead><tr><th>Kaynak</th><th>Son tarama</th><th></th><th class="num">İşlem</th></tr></thead><tbody>
     ${d.sources.map((s) => `<tr class="${s.enabled ? '' : 'muted'}">
-      <td><div class="cell-title">${esc(s.name)}</div><small class="muted">${s.kind === 'freelancer_api' ? 'Freelancer.com API · anahtar kelimelerinizle arar' : `${s.kind === 'rss' ? 'RSS' : 'Sayfa'} · ${esc(s.url)}`}${s.link_pattern ? ` · filtre: <code>${esc(s.link_pattern)}</code>` : ''}</small></td>
+      <td><div class="cell-title">${esc(s.name)} <span class="tag kind-badge">${s.lead_kind === 'job' ? 'İş ilanı' : 'Freelance'}</span></div><small class="muted">${describe(s)}${s.link_pattern ? ` · filtre: <code>${esc(s.link_pattern)}</code>` : ''}</small></td>
       <td>${s.last_run_at ? `${ago(s.last_run_at)}<br><small class="${s.last_status === 'error' ? 'bad-text' : 'muted'}">${esc(s.last_message || '')}</small>` : '<span class="muted">Henüz taranmadı</span>'}</td>
       <td>${toggle(`en${s.id}`, Boolean(s.enabled), '', `id="en${s.id}" aria-label="Kaynağı aç/kapat"`)}</td>
       <td class="num"><div class="row-actions">
@@ -80,7 +89,7 @@ export async function viewSources(main, id) {
         <button class="btn sm ghost" data-scan="${s.id}">${icon('refresh-cw', 'xs')} Tara</button>
         <button class="icon-btn" data-del="${s.id}" title="Sil" aria-label="Sil">${icon('trash-2', 'sm')}</button></div></td></tr>`).join('')}</tbody></table>`
     : empty('Kaynak yok', 'Yukarıdan bir site için sayfa ekleyin veya RSS beslemesi girin.', 'globe')}</div>
-  <p class="small muted">Taramalar "Otomasyonlar" sayfasındaki <b>İş ilanı taraması</b> göreviyle düzenli olarak çalışır. Sitelerin kullanım koşullarına uyun; Kalfa sayfaları seyrek ve kibarca okur.</p>`;
+  <p class="small muted">Taramalar "Otomasyonlar" sayfasındaki <b>İlan taraması</b> göreviyle düzenli olarak çalışır. Sitelerin kullanım koşullarına uyun; Kalfa sayfaları seyrek ve kibarca okur.</p>`;
 
   $('#bm').onclick = (e) => { e.preventDefault(); toast('Bu düğmeyi yer imleri çubuğuna sürükleyin; ilan sitelerinde tıklayınca çalışır.'); };
   $('#addPage').onclick = () => addSourceDialog({ kind: 'page' }, d.platforms);

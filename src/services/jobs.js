@@ -15,8 +15,8 @@ const sqlAgo = (ms) => isoAgo(ms).replace('T', ' ').slice(0, 19); // matches dat
 // --- Finding customers -----------------------------------------------------------------
 
 defineJob('platform_scan', {
-  label: 'İş ilanı taraması',
-  description: 'Kaynaklar sayfasındaki siteleri (Freelancer.com, R10.net, RSS ve izlenen sayfalar) tarar; anahtar kelimelerinize uyan yeni ilanları listeye ekler ve size bildirir.',
+  label: 'İlan taraması',
+  description: 'Kaynaklar sayfasındaki siteleri (Freelancer.com, Remotive, R10.net, RSS ve izlenen sayfalar) tarar; seçtiğiniz kategorilere uyan yeni freelance işleri ve iş ilanlarını listeye ekler ve size bildirir.',
   defaultSchedule: { type: 'interval', minutes: config.scanner.intervalMinutes },
   defaultEnabled: config.scanner.enabled,
   async run() {

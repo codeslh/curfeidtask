@@ -9,6 +9,7 @@ const { saveSection } = await import('../src/services/settings.js');
 const { setFetch, setLookup } = await import('../src/services/http.js');
 const sources = await import('../src/services/sources.js');
 const { detectLanguage, chunk } = await import('../src/services/translate.js');
+const { classify } = await import('../src/services/categories.js');
 
 const html = (body) => new Response(body, { status: 200, headers: { 'Content-Type': 'text/html' } });
 const calls = [];
@@ -40,6 +41,15 @@ async function fakeFetch(url) {
     assert.equal(q.get('langpair'), 'en|tr');
     return Response.json({ responseStatus: 200, responseData: { translatedText: `TR[${q.get('q')}]` } });
   }
+  if (url.startsWith('https://remotive.com/api/remote-jobs')) {
+    assert.equal(new URL(url).searchParams.get('category'), 'software-dev');
+    return Response.json({ jobs: [
+      { id: 11, url: 'https://remotive.com/remote-jobs/software-dev/backend-11', title: 'Senior Backend Developer (Node.js)', company_name: 'Acme', category: 'Software Development',
+        job_type: 'full_time', publication_date: new Date().toISOString(), candidate_required_location: 'Worldwide', salary: '$80k - $100k', description: '<p>We are hiring a backend developer.</p>', tags: ['node'] },
+      { id: 12, url: 'https://remotive.com/remote-jobs/customer-support/cs-12', title: 'Customer Support Specialist', company_name: 'Beta', category: 'Customer Service',
+        job_type: 'full_time', publication_date: new Date().toISOString(), candidate_required_location: 'USA', salary: '', description: '<p>Help our customers by email.</p>', tags: [] },
+    ] });
+  }
   if (url === 'https://forum.test/hizmet-alim/') return html(FORUM);
   if (url === 'https://ilan.test/') return html(FEED_PAGE);
   if (url === 'https://ilan.test/rss.xml') return new Response(FEED, { headers: { 'Content-Type': 'application/rss+xml' } });
@@ -56,7 +66,7 @@ before(async () => {
   setFetch(fakeFetch);
   setLookup(async (host) => [{ address: host === 'intranet.test' ? '10.0.0.5' : '93.184.216.34' }]);
   saveSection('business', { name: 'Kalfa Test', owner_name: 'Deniz' });
-  saveSection('scanner', { keywords: ['web sitesi', 'website', 'wordpress'], exclude_keywords: ['kripto', 'crypto'] });
+  saveSection('scanner', { freelance_categories: ['web', 'wordpress'], job_categories: ['software'], exclude_keywords: ['kripto', 'crypto'] });
   server = createApp().listen(0);
   admin = client(`http://127.0.0.1:${server.address().port}`);
   await admin.req('POST', '/api/auth/setup', { email: 'admin@test.com', password: 'GucluSifre123' });
@@ -70,6 +80,23 @@ after(() => {
 });
 
 const lead = (title) => get('SELECT * FROM leads WHERE title = ?', title);
+
+describe('kategoriler', () => {
+  test('ilanlar Türkçe ve İngilizce kelimelerle doğru kategoriye düşer', () => {
+    assert.equal(classify({ title: 'Kuaför salonu için web sitesi yapılacak' }).best, 'web');
+    assert.equal(classify({ title: 'Logo tasarımı yaptırılacak' }).best, 'design');
+    assert.equal(classify({ title: 'Need a Shopify store' }).best, 'ecommerce');
+    assert.equal(classify({ title: 'Flutter ile mobil uygulama' }).best, 'mobile');
+    assert.equal(classify({ title: 'Muhasebe elemanı aranıyor' }).best, 'finance');
+    assert.equal(classify({ title: 'Copywriter for blog posts' }).best, 'writing');
+  });
+
+  test('kelimeler bütün olarak eşleşir (build içindeki "ui" UI/UX sayılmaz)', () => {
+    assert.ok(!classify({ title: 'Help me build a guide' }).all.includes('uiux'));
+    assert.ok(classify({ title: 'UI designer needed' }).all.includes('uiux'));
+    assert.deepEqual(classify({ title: 'Bahçe düzenleme' }).all, []);
+  });
+});
 
 describe('dil tanıma ve parçalama', () => {
   test('Türkçe ve yabancı ilanlar ayırt edilir', () => {
@@ -130,8 +157,8 @@ describe('ilan kaynakları', () => {
   test('tarama tüm kaynakları okur, anahtar kelimeye göre eler ve puanlar', async () => {
     const r = await admin.req('POST', '/api/leads/scan');
     assert.equal(r.status, 200);
-    assert.equal(r.data.sources, 4);
-    assert.equal(r.data.matched, 3, JSON.stringify(r.data));
+    assert.equal(r.data.sources, 5);
+    assert.equal(r.data.matched, 4, JSON.stringify(r.data));
     assert.equal(r.data.errors.length, 1);
     assert.match(r.data.errors[0], /yer imi/);
 
@@ -161,13 +188,55 @@ describe('ilan kaynakları', () => {
     assert.equal(kuafor.lang, 'tr');
     assert.equal(kuafor.title_tr, null);
     assert.equal(lead('Crypto trading bot').title_tr, null, 'elenen ilanlar çevrilmez (kota harcanmaz)');
-    assert.equal(r.data.translated, 1);
+    assert.equal(r.data.translated, 2);
     assert.match(get(`SELECT body FROM notifications WHERE type = 'new_leads'`).body, /TR\[Need a website for my cafe\]/);
 
     const spa = get(`SELECT * FROM sources WHERE url = 'https://spa.test/'`);
     assert.equal(spa.last_status, 'error');
     assert.equal(get(`SELECT last_status FROM sources WHERE url = 'https://forum.test/hizmet-alim/'`).last_status, 'ok');
     assert.ok(get(`SELECT id FROM notifications WHERE type = 'new_leads'`));
+  });
+
+  test('sigortalı iş ilanları ayrı listede; şirket, konum, maaş ve kategoriyle gelir', async () => {
+    const d = (await admin.req('GET', '/api/leads?kind=job')).data;
+    assert.equal(d.kind, 'job');
+    assert.deepEqual(d.selected, ['software']);
+    assert.equal(d.leads.length, 1);
+    const job = d.leads[0];
+    assert.equal(job.title, 'Senior Backend Developer (Node.js)');
+    assert.equal(job.platform, 'remotive');
+    assert.equal(job.company, 'Acme');
+    assert.equal(job.location, 'Worldwide');
+    assert.equal(job.salary, '$80k - $100k');
+    assert.equal(job.category, 'software');
+    assert.equal(job.description, 'We are hiring a backend developer.');
+    assert.match(job.message, /^Hello, I would like to apply for the "Senior Backend Developer \(Node\.js\)" position/);
+    assert.equal(d.counts.filtered_out, 1, 'müşteri hizmetleri ilanı seçili kategoride değil');
+    const fl = (await admin.req('GET', '/api/leads?kind=freelance')).data;
+    assert.ok(fl.leads.every((l) => l.kind === 'freelance'));
+  });
+
+  test('kategori seçimi değişince ilanlar yeniden elenir', async () => {
+    const logo = () => lead('Logo tasarımı yaptırılacak, acil iş');
+    assert.equal(logo().status, 'filtered_out');
+    assert.match(logo().filter_reason, /Grafik/);
+    let r = await admin.req('PUT', '/api/leads/categories', { kind: 'freelance', categories: ['web', 'wordpress', 'design'] });
+    assert.equal(r.status, 200);
+    assert.equal(logo().status, 'new');
+    assert.equal(logo().category, 'design');
+    r = await admin.req('PUT', '/api/leads/categories', { kind: 'freelance', categories: ['web', 'wordpress'] });
+    assert.equal(logo().status, 'filtered_out');
+    assert.equal((await admin.req('PUT', '/api/leads/categories', { kind: 'x', categories: [] })).status, 400);
+  });
+
+  test('iş ilanlarında konum filtresi; "Uzaktan" remote ilanları da kabul eder', async () => {
+    const job = () => lead('Senior Backend Developer (Node.js)');
+    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], locations: ['İstanbul'] });
+    assert.equal(job().status, 'filtered_out');
+    assert.match(job().filter_reason, /Konum/);
+    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], locations: ['İstanbul', 'Uzaktan'] });
+    assert.equal(job().status, 'new');
+    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], locations: [] });
   });
 
   test('yabancı ilana İngilizce mesaj hazırlanır', async () => {
@@ -206,6 +275,15 @@ describe('ilan kaynakları', () => {
     assert.match(wp.message, /"WordPress kurumsal site" ilanınızı gördüm/);
     const filtered = (await admin.req('GET', '/api/leads?status=filtered_out')).data.leads;
     assert.equal(filtered.length, 3);
+  });
+
+  test('yer imiyle LinkedIn\'den gelen ilan iş ilanı olarak kaydedilir', async () => {
+    const r = await admin.req('POST', '/api/leads', { url: 'https://www.linkedin.com/jobs/view/1', title: 'Frontend Developer — İstanbul', description: 'React bilen frontend geliştirici arıyoruz.' });
+    assert.equal(r.data.kind, 'job');
+    const l = get('SELECT * FROM leads WHERE id = ?', r.data.id);
+    assert.equal(l.platform, 'linkedin');
+    assert.equal(l.kind, 'job');
+    assert.equal(l.status, 'new', 'elle eklenen ilan elenmez');
   });
 
   test('yer imiyle gelen ilan site tanınarak kaydedilir, tekrar eklenmez', async () => {

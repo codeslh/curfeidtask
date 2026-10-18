@@ -6,7 +6,7 @@
 
 Kalfa, freelancerlar için bir **müşteri bulma aracıdır**. Kendi bilgisayarınızda çalışır, yapay zeka kullanmaz, ücretli bir servise ihtiyaç duymaz.
 
-1. **İş ilanları:** Freelancer.com, R10.net, RSS beslemeleri ve izlediğiniz herhangi bir ilan sayfası düzenli taranır; anahtar kelimelerinize uyan yeni ilanlar listelenir, puanlanır ve size bildirilir. Bionluk, Armut gibi giriş gerektiren sitelerdeki ilanları tarayıcıdaki **"Kalfa'ya ekle"** yer imiyle tek tıkla kaydedersiniz.
+1. **Freelance işler ve iş ilanları (ayrı listeler):** Freelancer.com, R10.net, Remotive (uzaktan işler), RSS beslemeleri ve izlediğiniz herhangi bir ilan sayfası düzenli taranır. Anahtar kelime yazmazsınız; **kategori seçersiniz** (Web sitesi, E-ticaret, Mobil uygulama, Grafik tasarım, SEO, Muhasebe…). Seçtiğiniz kategorilere uyan yeni ilanlar listelenir, puanlanır ve size bildirilir. Bionluk, Armut, LinkedIn, Indeed gibi giriş gerektiren sitelerdeki ilanları tarayıcıdaki **"Kalfa'ya ekle"** yer imiyle tek tıkla kaydedersiniz.
 2. **Bölge taraması:** Çevrenizdeki işletmeler (kuaför, diş kliniği, restoran, emlakçı…) haritada bulunur, web siteleri tek tek incelenir (site yok mu, sadece Instagram mı, eski mi, mobil uyumlu mu) ve "web sitesine ihtiyacı var mı?" diye 0–100 puanlanır.
 3. **Yazma ve takip:** Her ilan ve işletme için hazır mesaj şablonunuz doldurulur. E-postayla gönderir, WhatsApp'ta açar veya kopyalayıp sitede teklif olarak verirsiniz. Gelen cevaplar Konuşmalar'da toplanır; cevap beklettiğiniz kişiler için hatırlatma gelir.
 
@@ -14,8 +14,9 @@ Kalfa, freelancerlar için bir **müşteri bulma aracıdır**. Kendi bilgisayar�
 
 | Alan | Neler var |
 |---|---|
-| İlan kaynakları | Freelancer.com (açık API), R10.net ve herkese açık her ilan sayfası (sayfa izleme, isteğe bağlı bağlantı filtresi), RSS/Atom (sayfada RSS varsa otomatik kullanılır), "Kalfa'ya ekle" yer imi (Bionluk, Armut, Upwork, Fiverr…), elle ilan ekleme |
-| İlan filtresi | Anahtar kelime, hariç kelime, bütçe aralığı, para birimi, ilan yaşı; uygunluk puanı (başlıkta kelime, bütçe, iletişim bilgisi, yenilik); ilan metnindeki e-posta ve telefon otomatik bulunur |
+| İki ayrı liste | **Freelance işler** (teklif verirsiniz) ve **İş ilanları** — sigortalı / maaşlı pozisyonlar (başvurursunuz); her birinin kendi kategorileri, durumları ve mesaj şablonu var |
+| İlan kaynakları | Freelance: Freelancer.com (açık API), R10.net, Hallederim. İş ilanı: Remotive (uzaktan işler, açık API), Kariyer.net, Secretcv, Yenibiris, Eleman.net (sayfa izleme). Her ikisi: RSS/Atom, herkese açık her ilan sayfası, "Kalfa'ya ekle" yer imi (Bionluk, Armut, Upwork, Fiverr, LinkedIn, Indeed, İŞKUR…), elle ilan ekleme |
+| Kategoriler | 22 hazır kategori; her biri Türkçe + İngilizce kelimeleri içinde taşır (ör. "E-ticaret": e-ticaret, shopify, woocommerce, ikas…). Kategori seçimi değişince mevcut ilanlar da yeniden elenir. İsteğe bağlı ek ve hariç kelimeler; iş ilanları için konum filtresi ("İstanbul, Uzaktan"), freelance için bütçe filtresi |
 | Çeviri | Yabancı dildeki ilanların (Freelancer.com, Upwork…) başlığı ve açıklaması otomatik Türkçeye çevrilir, orijinali de görünür; bu ilanlara İngilizce mesaj şablonu kullanılır. Ücretsiz MyMemory (anahtarsız), DeepL Free veya kendi LibreTranslate sunucunuz |
 | İlan takibi | Yeni → Yazıldı → Cevap verdi → Kazanıldı / Kaybedildi; notlar, CSV dışa aktarma |
 | Bölge taraması | OpenStreetMap (ücretsiz) veya Google Places; harita, site incelemesi, kural tabanlı puan, zincir marka eleme, mesaj taslağı; günlük gönderim sınırı, İPTAL yazanları kalıcı engelleme |
@@ -26,6 +27,8 @@ Kalfa, freelancerlar için bir **müşteri bulma aracıdır**. Kendi bilgisayar�
 
 ## İlan siteleri nasıl çalışır?
 
+**Freelance işler**
+
 | Site | Nasıl | Not |
 |---|---|---|
 | **Freelancer.com** | Otomatik (açık API) | Anahtar kelimeleriniz arama sorgusu olur. Teklifi sitede verirsiniz. |
@@ -34,6 +37,14 @@ Kalfa, freelancerlar için bir **müşteri bulma aracıdır**. Kendi bilgisayar�
 | **Armut** | Yer imi | Talepler yalnızca hizmet veren hesabında (Armut Pro) görünür. Talebi açıp "Kalfa'ya ekle"ye tıklayın; teklifi Armut'ta verirsiniz. |
 | **Hallederim** | Sayfa izleme veya yer imi | İlan listesi herkese açıksa adresini ekleyin, değilse yer imini kullanın. |
 | **Diğer siteler** | Sayfa izleme / RSS / yer imi | Herkese açık her ilan listesi eklenebilir. Kaynak eklerken **Dene** düğmesi neyin okunduğunu gösterir. |
+
+**İş ilanları (sigortalı / maaşlı)**
+
+| Site | Nasıl | Not |
+|---|---|---|
+| **Remotive** | Otomatik (açık API) | Yurt dışı şirketlerin uzaktan çalışılan ilanları; seçtiğiniz kategorilere göre gelir, Türkçeye çevrilir. Remotive'in kuralı gereği 6 saatte bir okunur. |
+| **Kariyer.net, Secretcv, Yenibiris, Eleman.net** | Sayfa izleme veya yer imi | Sitede kategori/şehir araması yapın, sonuç sayfasının adresini **Kaynaklar → Sayfa ekle** ile girin ve **Dene** ile kontrol edin. Sayfa okunamıyorsa (site botları engelliyorsa) ilanları yer imiyle kaydedin. Bu sitelerin yapısı benim tarafımdan doğrulanamadı. |
+| **LinkedIn, Indeed, İŞKUR** | Yer imi | Otomatik okumayı yasaklar veya giriş ister. İlanı açıp "Kalfa'ya ekle"ye tıklayın. |
 
 **"Kalfa'ya ekle" yer imi:** Kaynaklar sayfasındaki düğmeyi tarayıcınızın yer imleri çubuğuna sürükleyin. Bir ilan sayfasında (isterseniz açıklamayı fareyle seçip) yer imine tıklayınca Kalfa'da ilanın adresi, başlığı ve metni dolu bir "İlan ekle" formu açılır; içindeki e-posta/telefon otomatik bulunur.
 
@@ -84,7 +95,7 @@ Ardından tarayıcıda **http://localhost:3000** adresini açın:
 
 1. İlk açılışta yönetici hesabınızı oluşturun.
 2. **Ayarlar → İşletme**'den adınızı, telefonunuzu ve bildirim e-postanızı girin (mesaj imzasında kullanılır).
-3. **Ayarlar → İş ilanları**'ndan anahtar kelimelerinizi yazın (ör. web sitesi, wordpress, e-ticaret).
+3. **Freelance işler** ve **İş ilanları** sayfalarında **Kategoriler → Değiştir** ile hangi alanlarda ilan görmek istediğinizi seçin (iş ilanları için isterseniz şehir de yazın).
 4. **Kaynaklar** sayfasından izlemek istediğiniz ilan sayfalarını ekleyin ve "Kalfa'ya ekle" yer imini tarayıcınıza sürükleyin.
 5. **Bölge taraması** sayfasında semtinizi yazıp **Tara**'ya basın.
 
@@ -132,7 +143,7 @@ Testler dış servisleri taklit ederek tüm akışı dener: Freelancer.com / say
 ## Bilmeniz gerekenler
 
 - **Ticari ileti kuralları:** Türkiye'de işletmelere izinsiz tanıtım mesajı göndermek 6563 sayılı kanun / İYS ve KVKK kapsamındadır; WhatsApp da istenmeyen mesajları kısıtlar. Bu yüzden Kalfa varsayılan olarak hiçbir şeyi kendiliğinden göndermez: her mesajı siz onaylarsınız, günlük gönderim sınırı vardır, işletme mesajlarının sonuna "İPTAL yazın" cümlesi eklenir ve İPTAL yazanların telefonu/e-postası kalıcı olarak engellenir. Kurallara uymak sizin sorumluluğunuzdadır.
-- **Çeviri:** Kotayı korumak için yalnızca anahtar kelimelerinize uyan ilanlar ve açıklamaların ilk 1.500 karakteri çevrilir (Ayarlar → İş ilanları). Filtre ilanın orijinal metnine bakar; yabancı ilanlar için İngilizce anahtar kelimeler de ekleyin (ör. website, web design). İlan metinleri seçtiğiniz çeviri servisine gönderilir.
+- **Çeviri:** Kotayı korumak için yalnızca kategorilerinize uyan ilanlar ve açıklamaların ilk 1.500 karakteri çevrilir (Ayarlar → İlanlar). Kategoriler Türkçe ve İngilizce kelimeleri birlikte tanıdığı için yabancı ilanlar da doğru kategoriye düşer. İlan metinleri seçtiğiniz çeviri servisine gönderilir.
 - **OpenStreetMap:** Ücretsiz Nominatim ve Overpass servisleri kullanılır; yoğun kullanımda kendi sunucunuzu `NOMINATIM_URL` / `OVERPASS_URL` ile verebilirsiniz.
 - **Güvenlik:** İşletme siteleri ve izlenen sayfalar okunurken yerel ağ adreslerine istek atılmaz.
 - **Yedekleme:** Tüm veriler `DATA_DIR` (varsayılan `data/`) klasöründedir; günlük yedek `data/backups` içine alınır.
@@ -143,7 +154,8 @@ Testler dış servisleri taklit ederek tüm akışı dener: Freelancer.com / say
 src/
   server.js (giriş: Node sürüm kontrolü) → main.js, boot.js, app.js, config.js, db.js, seed.js
   routes/      auth.js, admin.js (panel API), public.js (WhatsApp webhook), assets.js
-  services/    sources.js (ilan kaynakları, filtre, puan), translate.js (çeviri), prospecting.js (bölge taraması),
+  services/    sources.js (ilan kaynakları, filtre, puan), categories.js (kategoriler), translate.js (çeviri),
+               prospecting.js (bölge taraması),
                inbox.js (konuşmalar), templates.js (mesaj şablonları), mailbox.js (IMAP),
                notify.js (e-posta), whatsapp.js, http.js (dış istekler + iç ağ koruması),
                security.js, totp.js (2FA), ratelimit.js, scheduler.js + jobs.js, settings.js

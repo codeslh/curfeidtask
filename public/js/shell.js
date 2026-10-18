@@ -10,7 +10,8 @@ const root = document.getElementById('app');
 export const NAV = [
   ['dashboard', 'Genel bakış', 'layout-dashboard', 'Çalışma alanı'],
   ['notifications', 'Bildirimler', 'bell', 'Çalışma alanı'],
-  ['leads', 'İş ilanları', 'target', 'Müşteri bulma'],
+  ['leads', 'Freelance işler', 'target', 'Müşteri bulma'],
+  ['vacancies', 'İş ilanları', 'briefcase', 'Müşteri bulma'],
   ['prospects', 'Bölge taraması', 'radar', 'Müşteri bulma'],
   ['sources', 'Kaynaklar', 'globe', 'Müşteri bulma'],
   ['conversations', 'Konuşmalar', 'message-circle', 'Takip'],
@@ -147,7 +148,7 @@ function renderSetup() {
 // ---------------------------------------------------------------------------
 
 function renderShell(active) {
-  const badge = (k) => (k === 'notifications' ? app.counts.unread : k === 'conversations' ? app.counts.waiting : k === 'leads' ? app.counts.leads : 0);
+  const badge = (k) => (k === 'notifications' ? app.counts.unread : k === 'conversations' ? app.counts.waiting : k === 'leads' ? app.counts.leads : k === 'vacancies' ? app.counts.vacancies : 0);
   const groups = [];
   for (const item of visibleNav()) {
     const g = groups.find((x) => x.name === item[3]) || groups[groups.push({ name: item[3], items: [] }) - 1];
@@ -236,7 +237,7 @@ export async function route() {
   const key = VIEWS[page] && allowed ? page : 'dashboard';
   try {
     const d = await GET('/dashboard');
-    app.counts = { unread: d.unread_notifications, waiting: d.kpis.waiting_reply, leads: d.kpis.new_leads };
+    app.counts = { unread: d.unread_notifications, waiting: d.kpis.waiting_reply, leads: d.kpis.new_freelance, vacancies: d.kpis.new_jobs };
   } catch { /* api() handles 401 */ }
   if (seq !== routeSeq) return;
   const main = renderShell(key);
@@ -270,7 +271,10 @@ const ACTIONS = [
 let paletteData = null;
 async function loadPaletteData() {
   const safe = (p) => p.catch(() => []);
-  const [customers, leads, conversations] = await Promise.all([safe(GET('/customers')), safe(GET('/leads').then((d) => d.leads)), safe(GET('/conversations'))]);
+  const [customers, leads, jobs, conversations] = await Promise.all([
+    safe(GET('/customers')), safe(GET('/leads?kind=freelance').then((d) => d.leads)), safe(GET('/leads?kind=job').then((d) => d.leads)), safe(GET('/conversations')),
+  ]);
+  leads.push(...jobs);
   paletteData = { customers, leads, conversations, at: Date.now() };
 }
 
@@ -297,7 +301,10 @@ export async function openPalette() {
     const actions = ACTIONS.filter((a) => match(a.label)).map((a) => ({ ...a, group: 'Komutlar' }));
     const data = paletteData || { customers: [], leads: [], conversations: [] };
     const records = q ? [
-      ...data.leads.filter((l) => match(`${l.title} ${l.platform_label}`)).slice(0, 6).map((l) => ({ group: 'İş ilanları', label: l.title, icon: 'target', hint: l.platform_label, run: () => { location.hash = `#/leads/${l.id}`; } })),
+      ...data.leads.filter((l) => match(`${l.title} ${l.title_tr || ''} ${l.company || ''} ${l.platform_label}`)).slice(0, 6).map((l) => ({
+        group: l.kind === 'job' ? 'İş ilanları' : 'Freelance işler', label: l.title_tr || l.title, icon: l.kind === 'job' ? 'briefcase' : 'target', hint: l.company || l.platform_label,
+        run: () => { location.hash = `#/${l.kind === 'job' ? 'vacancies' : 'leads'}/${l.id}`; },
+      })),
       ...data.customers.filter((c) => match(`${c.name} ${c.email || ''} ${c.phone || ''}`)).slice(0, 5).map((c) => ({ group: 'Kişiler', label: c.name, icon: 'user', hint: c.email || c.phone || '', run: () => { location.hash = '#/customers'; } })),
       ...data.conversations.filter((c) => match(`${c.customer_name || ''} ${c.last_message || ''}`)).slice(0, 5).map((c) => ({ group: 'Konuşmalar', label: c.customer_name || `#${c.id}`, icon: 'message-circle', hint: (c.last_message || '').slice(0, 50), run: () => { location.hash = `#/conversations/${c.id}`; } })),
     ] : [];

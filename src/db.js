@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS leads (
 -- Where leads come from: Freelancer.com API, RSS feeds and watched public listing pages.
 CREATE TABLE IF NOT EXISTS sources (
   id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL,                    -- freelancer_api | rss | page
+  kind TEXT NOT NULL,                    -- freelancer_api | remotive_api | rss | page
   platform TEXT NOT NULL DEFAULT 'web',  -- see PLATFORMS in services/sources.js
   name TEXT NOT NULL,
   url TEXT,
@@ -229,6 +229,14 @@ const COLUMNS = {
     title_tr: 'TEXT',                    // Turkish translation (foreign listings)
     description_tr: 'TEXT',
     translated_by: 'TEXT',
+    kind: "TEXT NOT NULL DEFAULT 'freelance'", // freelance | job (salaried position)
+    category: 'TEXT',                    // best matching selected category (services/categories.js)
+    categories: 'TEXT',                  // every matching category, comma separated
+    company: 'TEXT', location: 'TEXT', job_type: 'TEXT', salary: 'TEXT',
+    remote: 'INTEGER NOT NULL DEFAULT 0',
+  },
+  sources: {
+    lead_kind: "TEXT NOT NULL DEFAULT 'freelance'", // which list the source feeds: freelance | job
   },
   conversations: {
     followup_count: 'INTEGER NOT NULL DEFAULT 0',
