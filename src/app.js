@@ -21,7 +21,8 @@ export function createApp() {
     res.set('X-Frame-Options', 'SAMEORIGIN');
     res.set('Referrer-Policy', 'same-origin');
     res.set('X-Content-Type-Options', 'nosniff');
-    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    // Geolocation stays allowed for our own pages: "Konumumu bul" on the Bölge taraması page uses it.
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
     if (config.publicUrl.startsWith('https://')) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     // Panel pages only load our own scripts.
     res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");

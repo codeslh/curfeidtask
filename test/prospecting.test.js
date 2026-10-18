@@ -33,11 +33,22 @@ function overpassElements() {
 }
 
 const html = (body) => new Response(body, { status: 200, headers: { 'Content-Type': 'text/html' } });
+const outage = { nominatim: false, overpassMain: false, overpassAll: false };
 async function fakeFetch(url) {
   url = String(url);
   calls.push(url);
-  if (url.includes('nominatim')) return Response.json([{ lat: '41.0', lon: '29.0', display_name: 'Kadıköy, İstanbul' }]);
-  if (url.includes('overpass')) { overpassCalls++; return Response.json({ elements: overpassElements() }); }
+  if (url.includes('nominatim')) {
+    if (outage.nominatim) return new Response('blocked', { status: 403 });
+    return Response.json([{ lat: '41.0', lon: '29.0', display_name: 'Kadıköy, İstanbul' }]);
+  }
+  if (url.includes('photon.komoot.io')) return Response.json({ features: [{ geometry: { coordinates: [29.03, 40.99] }, properties: { name: 'Moda', city: 'İstanbul' } }] });
+  if (url.includes('overpass') || url.includes('maps.mail.ru')) {
+    if (outage.overpassAll) return new Response('Too Many Requests', { status: 429 });
+    if (outage.overpassMain && url.includes('overpass-api.de')) return new Response('Too Many Requests', { status: 429 });
+    if (outage.overpassMain && url.includes('kumi')) return Response.json({ remark: 'runtime error: Query timed out in "query" at line 1 after 50 seconds.', elements: [] });
+    overpassCalls++;
+    return Response.json({ elements: overpassElements() });
+  }
   if (url.startsWith('http://lezzet.test')) return html('<html><head><title>Lezzet</title></head><body>© 2015 Lezzet</body></html>');
   if (url.startsWith('https://modern.test')) return html(`<html><head><meta name="viewport" content="width=device-width"><title>Modern</title></head><body>© ${year}</body></html>`);
   throw new Error(`beklenmeyen istek: ${url}`);
@@ -181,6 +192,29 @@ describe('bölge taraması', () => {
     const r = await admin.req('POST', `/api/prospects/${byName('Lezzet Lokantası').id}/analyze`);
     assert.equal(r.status, 200);
     assert.match(r.data.message, /^Lezzet Lokantası için: .*mobil uyumlu değil.*\. Deniz \(Kalfa Test\)$/);
+  });
+
+  test('Nominatim yanıt vermezse konum Photon ile bulunur', async () => {
+    outage.nominatim = true;
+    const r = await prospecting.geocode('Moda');
+    assert.deepEqual([r.lat, r.lng], [40.99, 29.03]);
+    outage.nominatim = false;
+  });
+
+  test('Overpass sunucusu meşgulse sıradaki sunucu denenir', async () => {
+    outage.overpassMain = true;
+    calls.length = 0;
+    const els = await prospecting.fetchOsm({ lat: 41, lng: 29, radiusKm: 1, categories: ['cafe'], limit: 10 });
+    assert.ok(els.length > 0);
+    assert.ok(calls.some((u) => u.includes('overpass-api.de')) && calls.some((u) => u.includes('kumi')) && calls.some((u) => u.includes('maps.mail.ru')));
+    outage.overpassAll = true;
+    await assert.rejects(prospecting.fetchOsm({ lat: 41, lng: 29, radiusKm: 1, categories: ['cafe'], limit: 10 }), /meşgul/);
+    outage.overpassMain = false; outage.overpassAll = false;
+  });
+
+  test('konum özelliği (Konumumu bul) tarayıcıda engellenmez', async () => {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/`);
+    assert.match(res.headers.get('permissions-policy'), /geolocation=\(self\)/);
   });
 
   test('zamanlanmış bölge taraması görevi çalışır', async () => {

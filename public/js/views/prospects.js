@@ -89,7 +89,9 @@ export async function viewProspects(main, openId) {
   const Lf = await loadLeaflet();
   const center = s.lat != null ? [s.lat, s.lng] : list[0] ? [list[0].lat, list[0].lng] : [41.0082, 28.9784];
   const map = Lf.map('map', { zoomControl: true, attributionControl: true }).setView(center, s.lat != null ? (s.radius_km <= 1 ? 15 : s.radius_km <= 3 ? 14 : 12) : 11);
-  Lf.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap katkıcıları' }).addTo(map);
+  // OpenStreetMap's tile servers refuse requests without a Referer, and the app's
+  // Referrer-Policy (same-origin) would strip it; send our origin for tiles only.
+  Lf.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin', attribution: '&copy; OpenStreetMap katkıcıları' }).addTo(map);
   if (s.lat != null) Lf.circle([s.lat, s.lng], { radius: s.radius_km * 1000, weight: 1.5, dashArray: '5 5', className: 'scan-radius' }).addTo(map);
   const markers = new Map();
   for (const p of list) {

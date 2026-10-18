@@ -53,8 +53,11 @@ export const config = {
 
   // Business prospecting: OpenStreetMap needs no key; Google Places is optional.
   googlePlacesKey: env.GOOGLE_PLACES_API_KEY || '',
-  overpassUrl: env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
-  nominatimUrl: env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org',
+  // Several public Overpass servers; the next one is tried when one is busy. OVERPASS_URL (comma separated) overrides.
+  overpassUrls: (env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter,https://maps.mail.ru/osm/tools/overpass/api/interpreter,https://overpass.private.coffee/api/interpreter')
+    .split(',').map((s) => s.trim()).filter(Boolean),
+  nominatimUrl: (env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org').replace(/\/+$/, ''),
+  photonUrl: (env.PHOTON_URL || 'https://photon.komoot.io').replace(/\/+$/, ''),
 
   // Translating foreign listings to Turkish (see services/translate.js). Nothing set = free MyMemory.
   translate: {

@@ -144,7 +144,7 @@ Testler dış servisleri taklit ederek tüm akışı dener: Freelancer.com / say
 
 - **Ticari ileti kuralları:** Türkiye'de işletmelere izinsiz tanıtım mesajı göndermek 6563 sayılı kanun / İYS ve KVKK kapsamındadır; WhatsApp da istenmeyen mesajları kısıtlar. Bu yüzden Kalfa varsayılan olarak hiçbir şeyi kendiliğinden göndermez: her mesajı siz onaylarsınız, günlük gönderim sınırı vardır, işletme mesajlarının sonuna "İPTAL yazın" cümlesi eklenir ve İPTAL yazanların telefonu/e-postası kalıcı olarak engellenir. Kurallara uymak sizin sorumluluğunuzdadır.
 - **Çeviri:** Kotayı korumak için yalnızca kategorilerinize uyan ilanlar ve açıklamaların ilk 1.500 karakteri çevrilir (Ayarlar → İlanlar). Kategoriler Türkçe ve İngilizce kelimeleri birlikte tanıdığı için yabancı ilanlar da doğru kategoriye düşer. İlan metinleri seçtiğiniz çeviri servisine gönderilir.
-- **OpenStreetMap:** Ücretsiz Nominatim ve Overpass servisleri kullanılır; yoğun kullanımda kendi sunucunuzu `NOMINATIM_URL` / `OVERPASS_URL` ile verebilirsiniz.
+- **OpenStreetMap:** Ücretsiz servisler kullanılır: konum araması için Nominatim (çalışmazsa Photon), işletme araması için Overpass. Overpass sunucuları yoğunken hata verebilir; Kalfa sırayla birkaç sunucuyu dener. Hepsi meşgulse birkaç dakika sonra tekrar deneyin veya yarıçapı / kategori sayısını azaltın. Kendi sunucunuz varsa `OVERPASS_URL` / `NOMINATIM_URL` ile verebilirsiniz.
 - **Güvenlik:** İşletme siteleri ve izlenen sayfalar okunurken yerel ağ adreslerine istek atılmaz.
 - **Yedekleme:** Tüm veriler `DATA_DIR` (varsayılan `data/`) klasöründedir; günlük yedek `data/backups` içine alınır.
 

@@ -42,13 +42,38 @@ const json = (v) => (v ? JSON.parse(v) : null);
 
 // --- Geocoding -------------------------------------------------------------------
 
+const why = (err) => (err.name === 'TimeoutError' ? 'zaman aşımı' : err.cause?.code || err.message);
+
+// Nominatim first; Photon (also OpenStreetMap data, no key) when Nominatim is down or blocks us.
 export async function geocode(query) {
-  const url = `${config.nominatimUrl}/search?format=json&limit=1&accept-language=tr&q=${encodeURIComponent(query)}`;
-  const res = await httpFetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`Konum servisi yanıt vermedi (${res.status})`);
-  const [hit] = await res.json();
-  if (!hit) throw new Error(`"${query}" için konum bulunamadı. Daha açık yazın (ör. "Kadıköy, İstanbul").`);
-  return { lat: Number(hit.lat), lng: Number(hit.lon), label: hit.display_name };
+  query = String(query || '').trim();
+  if (!query) throw new Error('Taranacak konumu yazın (ör. "Kadıköy, İstanbul")');
+  const tried = [];
+  try {
+    const url = `${config.nominatimUrl}/search?format=json&limit=1&accept-language=tr&q=${encodeURIComponent(query)}`;
+    const res = await httpFetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', 'Accept-Language': 'tr' }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const [hit] = await res.json();
+    if (hit) return { lat: Number(hit.lat), lng: Number(hit.lon), label: hit.display_name };
+    tried.push('Nominatim: sonuç yok');
+  } catch (err) {
+    tried.push(`Nominatim: ${why(err)}`);
+  }
+  try {
+    const res = await httpFetch(`${config.photonUrl}/api/?limit=1&q=${encodeURIComponent(query)}`, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const f = (await res.json()).features?.[0];
+    if (f) {
+      const [lng, lat] = f.geometry.coordinates;
+      const p = f.properties || {};
+      return { lat, lng, label: [p.name, p.district, p.city, p.country].filter(Boolean).join(', ') };
+    }
+    tried.push('Photon: sonuç yok');
+  } catch (err) {
+    tried.push(`Photon: ${why(err)}`);
+  }
+  if (tried.every((t) => t.endsWith('sonuç yok'))) throw new Error(`"${query}" için konum bulunamadı. Daha açık yazın (ör. "Kadıköy, İstanbul") veya haritada bir noktaya tıklayın.`);
+  throw new Error(`Konum servislerine ulaşılamadı (${tried.join('; ')}). İnternet bağlantınızı kontrol edin veya haritada bir noktaya tıklayarak tarayın.`);
 }
 
 // --- Sources -----------------------------------------------------------------------
@@ -75,18 +100,37 @@ function categoryOf(tags, wanted) {
   return wanted[0];
 }
 
+// The free public Overpass servers are often busy (429 / 504); try the next one when that happens.
+async function overpass(query) {
+  const errors = [];
+  for (const url of config.overpassUrls) {
+    try {
+      const res = await httpFetch(url, {
+        method: 'POST',
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { throw new Error('geçersiz yanıt'); }
+      // A timed-out query still answers 200, with a "remark" and no elements.
+      if (!data.elements?.length && /timed out|out of memory|error/i.test(data.remark || '')) throw new Error(data.remark);
+      return data;
+    } catch (err) {
+      errors.push(`${new URL(url).hostname}: ${why(err)}`);
+    }
+  }
+  throw new Error(`OpenStreetMap sunucularına ulaşılamadı veya hepsi meşgul (${errors.join('; ')}). Birkaç dakika sonra tekrar deneyin ya da yarıçapı / kategori sayısını azaltın.`);
+}
+
 export async function fetchOsm({ lat, lng, radiusKm, categories, limit }) {
   const r = Math.round(Math.min(radiusKm, 15) * 1000);
   const filters = categories.flatMap((c) => (CATEGORIES[c]?.osm || []).map(([k, v]) => `nwr["${k}"="${v}"]["name"](around:${r},${lat},${lng});`));
   if (!filters.length) throw new Error('En az bir kategori seçin');
-  const query = `[out:json][timeout:40];(${filters.join('')});out center tags ${Math.max(limit * 3, 60)};`;
-  const res = await httpFetch(config.overpassUrl, {
-    method: 'POST',
-    headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `data=${encodeURIComponent(query)}`,
-  });
-  if (!res.ok) throw new Error(`OpenStreetMap servisi yanıt vermedi (${res.status}). Biraz sonra tekrar deneyin.`);
-  const data = await res.json();
+  const query = `[out:json][timeout:50];(${filters.join('')});out tags center ${Math.max(limit * 3, 60)};`;
+  const data = await overpass(query);
   return (data.elements || []).map((el) => {
     const t = el.tags || {};
     const addr = [t['addr:street'] && `${t['addr:street']} ${t['addr:housenumber'] || ''}`.trim(), t['addr:district'] || t['addr:suburb'], t['addr:city']].filter(Boolean).join(', ');
