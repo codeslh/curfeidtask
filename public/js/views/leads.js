@@ -1,67 +1,165 @@
 import {
-  $, $$, GET, POST, PUT, act, ago, app, busy, empty, esc, field, icon, liveFilter, modal, money, onSegment, pageHeader, pill, searchBox, segmented, toast,
+  $, $$, GET, POST, PUT, act, ago, app, busy, confirmDialog, empty, esc, field, icon, liveFilter, modal, money, onSegment, pageHeader, pill, searchBox, segmented, toast,
 } from '../core.js';
 
-export async function viewLeads(main) {
-  const filter = sessionStorage.getItem('leadFilter') || 'active';
-  const all = await GET('/leads');
-  const count = (st) => all.filter((l) => st.includes(l.status)).length;
-  const GROUPS = {
-    active: ['new', 'needs_admin', 'contacted'], needs_admin: ['needs_admin'], contacted: ['contacted'], won: ['won'], filtered_out: ['filtered_out', 'lost'],
-  };
-  const list = all.filter((l) => GROUPS[filter].includes(l.status));
+const GROUPS = {
+  new: ['new'], contacted: ['contacted'], replied: ['replied'], won: ['won'], archive: ['lost', 'ignored'], filtered_out: ['filtered_out'],
+};
+
+const budgetText = (l) => (l.budget_min == null && l.budget_max == null ? ''
+  : `${l.budget_min != null ? money(l.budget_min) : ''}${l.budget_min != null && l.budget_max != null ? ' – ' : ''}${l.budget_max != null ? money(l.budget_max) : ''} ${l.currency || ''}`.trim());
+
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); toast('Mesaj panoya kopyalandı'); } catch { toast('Kopyalanamadı; metni seçip kendiniz kopyalayın', 'error'); }
+}
+
+/** "İlan ekle" form; also opened by the bookmarklet with ?u=&t=&d= in the address. */
+export async function newLeadDialog(prefill = {}) {
+  const r = await modal({
+    title: 'İlan ekle',
+    description: 'Bionluk, Armut gibi giriş gerektiren sitelerde gördüğünüz ilanları buraya kaydedin. Kaynaklar sayfasındaki "Kalfa\'ya ekle" yer imi bu formu sizin yerinize doldurur.',
+    submitText: 'Kaydet',
+    body: `<div class="form-grid">
+      ${field('url', 'İlan adresi', { value: prefill.url || '', placeholder: 'https://…', span: true })}
+      ${field('title', 'Başlık', { value: prefill.title || '', required: true, span: true })}
+      ${field('description', 'Açıklama', { type: 'textarea', rows: 5, value: prefill.description || '', span: true, hint: 'İlan metnini yapıştırın; içindeki e-posta ve telefon otomatik bulunur.' })}
+      ${field('client_name', 'İlan sahibi', { value: '' })}
+      ${field('budget', 'Bütçe', { type: 'number', value: '' })}
+      ${field('email', 'E-posta', { type: 'email', value: '' })}
+      ${field('phone', 'Telefon', { value: '' })}</div>`,
+    onSubmit: (d) => POST('/leads', d),
+  });
+  if (!r) return null;
+  toast(r.duplicate ? 'Bu ilan zaten kayıtlı' : 'İlan kaydedildi');
+  return r;
+}
+
+function parsePrefill(id) {
+  const q = new URLSearchParams(String(id || '').split('?')[1] || '');
+  return { url: q.get('u') || '', title: q.get('t') || '', description: q.get('d') || '' };
+}
+
+export async function viewLeads(main, id) {
+  if (String(id || '').startsWith('new')) {
+    const r = await newLeadDialog(parsePrefill(id));
+    location.hash = r ? `#/leads/${r.id}` : '#/leads';
+    return;
+  }
+  const filter = sessionStorage.getItem('leadFilter') || 'new';
+  const platformFilter = sessionStorage.getItem('leadPlatform') || '';
+  const d = await GET(`/leads${filter === 'filtered_out' ? '?status=filtered_out' : ''}`);
+  const count = (key) => GROUPS[key].reduce((a, st) => a + (d.counts[st] || 0), 0);
+  const platforms = [...new Set(d.leads.map((l) => l.platform))];
+  const list = d.leads.filter((l) => GROUPS[filter].includes(l.status) && (!platformFilter || l.platform === platformFilter));
 
   main.innerHTML = `${pageHeader({
     title: 'İş ilanları',
-    subtitle: 'Freelancer platformlarından kapsamınıza göre bulunan ilanlar. İletişim bilgisi olanlara yapay zeka yazar; olmayanlar size kalır.',
-    actions: `<a class="btn" href="#/settings/scanner">${icon('filter', 'sm')} Kapsam</a><button class="btn primary" id="scan">${icon('refresh-cw', 'sm')} Şimdi tara</button>`,
+    subtitle: 'Kaynaklarınızdan bulunan ve anahtar kelimelerinize uyan ilanlar. Uygun olanlara teklif verin veya ilan sahibine yazın.',
+    actions: `<a class="btn" href="#/settings/scanner">${icon('filter', 'sm')} Anahtar kelimeler</a>
+      <button class="btn" id="addLead">${icon('plus', 'sm')} İlan ekle</button>
+      <button class="btn primary" id="scan" ${d.scanning ? 'disabled' : ''}>${icon('refresh-cw', 'sm')} ${d.scanning ? 'Taranıyor…' : 'Şimdi tara'}</button>`,
   })}
   <div class="toolbar">
-    ${segmented('lead', [['active', 'Aktif', count(GROUPS.active)], ['needs_admin', 'Size kalan', count(GROUPS.needs_admin)], ['contacted', 'Yazıldı', count(GROUPS.contacted)], ['won', 'Kazanılan', count(GROUPS.won)], ['filtered_out', 'Elenen', count(GROUPS.filtered_out)]], filter)}
-    <span class="spacer"></span>${searchBox('İlan ara…')}
+    ${segmented('lead', [['new', 'Yeni', count('new')], ['contacted', 'Yazıldı', count('contacted')], ['replied', 'Cevap verdi', count('replied')], ['won', 'Kazanılan', count('won')], ['archive', 'Arşiv', count('archive')], ['filtered_out', 'Elenen', count('filtered_out')]], filter)}
+    <span class="spacer"></span>
+    ${platforms.length > 1 ? `<select id="plat" class="input-sm" aria-label="Site"><option value="">Tüm siteler</option>${platforms.map((p) => `<option value="${esc(p)}" ${p === platformFilter ? 'selected' : ''}>${esc(d.platforms[p]?.label || p)}</option>`).join('')}</select>` : ''}
+    ${searchBox('İlan ara…')}
   </div>
   <div class="card-grid" id="grid">${list.map((l) => `
-    <article class="lead-card ${l.status}">
-      <div class="lc-top"><span class="platform">${icon('globe', 'xs')} ${esc(l.platform)}</span>${pill(l.status)}<time>${ago(l.created_at)}</time></div>
+    <article class="lead-card ${l.status}" data-open="${l.id}" tabindex="0">
+      <div class="lc-top"><span class="platform">${icon('globe', 'xs')} ${esc(l.platform_label)}</span>${l.score != null ? `<span class="score-dot" title="Uygunluk puanı">${l.score}</span>` : ''}${pill(l.status)}<time>${ago(l.created_at)}</time></div>
       <h3>${esc(l.title)}</h3>
-      <p class="lc-desc">${esc(l.description.slice(0, 220))}${l.description.length > 220 ? '…' : ''}</p>
+      ${l.description ? `<p class="lc-desc">${esc(l.description.slice(0, 220))}${l.description.length > 220 ? '…' : ''}</p>` : ''}
       ${l.skills ? `<div class="lc-skills">${l.skills.split(',').filter(Boolean).slice(0, 4).map((s) => `<span class="tag">${esc(s.trim())}</span>`).join('')}</div>` : ''}
       ${l.filter_reason ? `<div class="lc-reason">${icon('filter', 'xs')} ${esc(l.filter_reason)}</div>` : ''}
       <div class="lc-foot">
-        <div class="lc-budget"><small>Bütçe</small><b>${l.budget_min != null ? money(l.budget_min) : '?'} – ${l.budget_max != null ? money(l.budget_max) : '?'} ${esc(l.currency || '')}</b></div>
+        <div class="lc-budget">${budgetText(l) ? `<small>Bütçe</small><b>${esc(budgetText(l))}</b>` : '<small>Bütçe belirtilmemiş</small>'}</div>
         <div class="row-actions">
-          ${l.url ? `<a class="icon-btn" href="${esc(l.url)}" target="_blank" rel="noopener" title="İlana git" aria-label="İlana git">${icon('external-link', 'sm')}</a>` : ''}
-          ${l.conversation_id ? `<a class="icon-btn" href="#/conversations/${l.conversation_id}" title="Konuşma" aria-label="Konuşma">${icon('message-circle', 'sm')}</a>` : ''}
-          ${!['won', 'lost'].includes(l.status) ? `<button class="icon-btn" data-lost="${l.id}" title="Kaybedildi" aria-label="Kaybedildi">${icon('x', 'sm')}</button>
-            <button class="btn sm primary" data-project="${l.id}">${icon('check', 'xs')} İşi aldım</button>` : ''}
+          ${l.contact.email ? `<span class="icon-btn static" title="E-posta var">${icon('mail', 'sm')}</span>` : ''}
+          ${l.contact.phone ? `<span class="icon-btn static" title="Telefon var">${icon('phone', 'sm')}</span>` : ''}
+          ${l.url ? `<a class="icon-btn" href="${esc(l.url)}" target="_blank" rel="noopener" title="İlana git" aria-label="İlana git" data-stop>${icon('external-link', 'sm')}</a>` : ''}
         </div>
       </div>
     </article>`).join('')}
     <div data-no-results hidden class="muted">Aramanızla eşleşen ilan yok.</div>
   </div>
-  ${list.length ? '' : empty('Bu listede ilan yok', 'Platformları taramak için "Şimdi tara"ya basın veya otomasyonlardan düzenli taramayı açın.', 'target', '<button class="btn primary" id="scan2">Şimdi tara</button>')}`;
+  ${list.length ? '' : empty(filter === 'new' ? 'Yeni ilan yok' : 'Bu listede ilan yok',
+    filter === 'new' ? 'Kaynaklar sayfasından site ekleyin, "Şimdi tara"ya basın veya gördüğünüz bir ilanı "İlan ekle" ile kaydedin.' : 'İlanların durumu değiştikçe burada görünecek.',
+    'target', filter === 'new' ? '<a class="btn" href="#/sources">Kaynaklar</a>' : '')}`;
 
   onSegment(main, 'lead', (v) => { sessionStorage.setItem('leadFilter', v); app.route(); });
+  $('#plat')?.addEventListener('change', (e) => { sessionStorage.setItem('leadPlatform', e.target.value); app.route(); });
   liveFilter($('#q'), '.lead-card', main);
-  const scan = (btn) => busy(btn, async () => {
+  $('#scan').onclick = (e) => busy(e.currentTarget, async () => {
+    toast('Kaynaklar taranıyor…');
     const r = await act(() => POST('/leads/scan'));
     if (!r) return;
-    toast(`${r.fetched} ilan tarandı · ${r.contacted} yazıldı · ${r.needs_admin} size kaldı · ${r.filtered} elendi${r.errors?.length ? ` · ${r.errors.length} hata` : ''}`);
+    toast(r.skipped ? 'Tarama zaten sürüyor' : `${r.fetched} ilan okundu · ${r.matched} yeni uygun · ${r.filtered} elendi${r.errors?.length ? ` · ${r.errors.length} kaynakta hata` : ''}`);
     app.route();
   });
-  $('#scan').onclick = (e) => scan(e.currentTarget);
-  $('#scan2')?.addEventListener('click', (e) => scan(e.currentTarget));
-  $$('[data-project]').forEach((b) => { b.onclick = async () => {
-    const lead = all.find((l) => String(l.id) === b.dataset.project);
-    const r = await modal({
-      title: 'İşi aldınız mı?', description: 'Proje açılır ve yapay zeka geliştirmeye başlar.', submitText: 'Projeyi oluştur',
-      body: `<div class="form-grid">${field('title', 'Proje adı', { value: lead.title, required: true, span: true })}
-        ${field('price', 'Anlaşılan fiyat', { type: 'number', value: lead.budget_max ?? '', required: true })}
-        ${field('currency', 'Para birimi', { value: lead.currency || 'TRY' })}
-        ${field('requirements', 'Gereksinimler', { type: 'textarea', value: lead.description, span: true, rows: 5 })}</div>`,
-      onSubmit: (d) => POST(`/leads/${lead.id}/project`, d),
-    });
-    if (r) { toast('Proje oluşturuldu, yapay zeka geliştirmeye başladı'); location.hash = `#/projects/${r.id}`; }
-  }; });
-  $$('[data-lost]').forEach((b) => { b.onclick = () => act(() => PUT(`/leads/${b.dataset.lost}`, { status: 'lost' }), 'Kaybedildi olarak işaretlendi').then(app.route); });
+  $('#addLead').onclick = async () => { const r = await newLeadDialog(); if (r) location.hash = `#/leads/${r.id}`; };
+  $$('[data-stop]').forEach((a) => { a.onclick = (e) => e.stopPropagation(); });
+  $$('[data-open]').forEach((c) => {
+    c.onclick = () => { location.hash = `#/leads/${c.dataset.open}`; };
+    c.onkeydown = (e) => { if (e.key === 'Enter') c.click(); };
+  });
+  if (id) openLead(Number(id), d.smtp);
+}
+
+async function openLead(leadId, smtp) {
+  let l;
+  try { l = await GET(`/leads/${leadId}`); } catch { return; }
+  const done = (msg) => { toast(msg); document.querySelector('.overlay')?.remove(); location.hash = '#/leads'; };
+  const canContact = ['new', 'filtered_out'].includes(l.status);
+  const result = modal({
+    drawer: true, hideFooter: true,
+    title: esc(l.title),
+    description: `${esc(l.platform_label)} · ${ago(l.created_at)}${budgetText(l) ? ` · ${esc(budgetText(l))}` : ''}`,
+    body: `<div class="pd">
+      <div class="row wrap">${pill(l.status)}${l.score != null ? `<span class="tag">Uygunluk ${l.score}/100</span>` : ''}${l.filter_reason ? `<span class="tag">${icon('filter', 'xs')} ${esc(l.filter_reason)}</span>` : ''}</div>
+      ${l.url ? `<a class="btn primary block" href="${esc(l.url)}" target="_blank" rel="noopener">${icon('external-link', 'sm')} İlana git · ${esc(l.platform_label)}</a>` : ''}
+      ${l.description ? `<div class="lead-desc">${esc(l.description)}</div>` : ''}
+      <div class="pd-grid"><div><h4>İletişim</h4><ul class="pd-contact">
+        ${l.client_name ? `<li>${icon('user', 'xs')} ${esc(l.client_name)}</li>` : ''}
+        <li>${icon('mail', 'xs')} ${l.contact.email ? esc(l.contact.email) : '<span class="muted">Yok</span>'}</li>
+        <li>${icon('phone', 'xs')} ${l.contact.phone ? `<a href="tel:+${esc(l.contact.phone)}">+${esc(l.contact.phone)}</a>` : '<span class="muted">Yok</span>'}</li></ul></div>
+        <div><h4>Nasıl yazılır?</h4><p class="small muted">${l.contact.email || l.contact.phone ? 'İlanda iletişim bilgisi var; doğrudan yazabilirsiniz.' : 'İletişim bilgisi yok: mesajı kopyalayıp sitede teklif olarak gönderin, sonra "Teklif verdim"e basın.'}</p></div></div>
+      <label class="field">Mesaj <small>Ayarlar → Mesaj şablonları'ndan değiştirebilirsiniz.</small>
+        <textarea id="lmsg" rows="6">${esc(l.message)}</textarea></label>
+      <div class="pd-actions">
+        <button type="button" class="btn" id="copyMsg">${icon('copy', 'sm')} Mesajı kopyala</button>
+        ${canContact ? `<button type="button" class="btn primary" data-ch="platform">${icon('send', 'sm')} Teklif verdim</button>` : ''}
+        ${canContact && l.contact.email ? `<button type="button" class="btn" data-ch="email" ${smtp ? '' : 'disabled title="SMTP ayarlı değil"'}>${icon('mail', 'sm')} E-posta gönder</button>` : ''}
+        ${canContact && l.contact.phone ? `<button type="button" class="btn" data-ch="whatsapp_link">${icon('message-circle', 'sm')} WhatsApp'ta aç</button>` : ''}
+      </div>
+      ${l.conversation_id ? `<a class="link" href="#/conversations/${l.conversation_id}">${icon('message-circle', 'xs')} Konuşmayı aç</a>` : ''}
+      <label class="field">Notlarınız<textarea id="lnotes" rows="2" placeholder="ör. 3.000 TL teklif verdim, cuma dönecek">${esc(l.notes || '')}</textarea></label>
+      <div class="pd-foot">
+        <button type="button" class="btn sm" data-st="won">${icon('trophy', 'xs')} İşi aldım</button>
+        <button type="button" class="btn sm ghost" data-st="lost">Kaybedildi</button>
+        <button type="button" class="btn sm ghost" data-st="ignored">İlgilenmiyorum</button>
+        ${l.status !== 'new' ? '<button type="button" class="btn sm ghost" data-st="new">Yeniye al</button>' : ''}
+      </div></div>`,
+    onSubmit: () => false,
+  });
+  // Closing the drawer returns to the list address, so the same card can be opened again.
+  result.then(() => { if (location.hash === `#/leads/${l.id}`) history.replaceState(null, '', '#/leads'); });
+  const dlg = [...document.querySelectorAll('.dialog')].at(-1);
+  const msg = () => $('#lmsg', dlg).value;
+  $('#copyMsg', dlg).onclick = () => copy(msg());
+  $('#lnotes', dlg).onchange = (e) => act(() => PUT(`/leads/${l.id}`, { notes: e.target.value }), 'Not kaydedildi');
+  $$('[data-st]', dlg).forEach((b) => { b.onclick = async () => { if (await act(() => PUT(`/leads/${l.id}`, { status: b.dataset.st }))) done('Durum güncellendi'); }; });
+  $$('[data-ch]', dlg).forEach((b) => {
+    b.onclick = async () => {
+      const ch = b.dataset.ch;
+      if (ch === 'whatsapp_link') {
+        window.open(`https://wa.me/${l.contact.phone}?text=${encodeURIComponent(msg())}`, '_blank', 'noopener');
+        if (!(await confirmDialog('Mesajı WhatsApp\'tan gönderdiniz mi?', 'Gönderdiyseniz ilan "Yazıldı" olarak işaretlenir ve bir konuşma açılır.', { confirmText: 'Evet, gönderdim' }))) return;
+      }
+      if (ch === 'platform') await copy(msg());
+      const r = await busy(b, () => act(() => POST(`/leads/${l.id}/contact`, { channel: ch, message: msg() })));
+      if (r) done(ch === 'email' ? 'E-posta gönderildi' : 'Yazıldı olarak işaretlendi');
+    };
+  });
+  return result;
 }

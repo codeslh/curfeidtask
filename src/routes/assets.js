@@ -16,6 +16,7 @@ const ICONS = [
   'command', 'panel-left', 'kanban', 'list', 'layout-grid', 'arrow-up-right', 'arrow-down-right', 'activity', 'corner-down-left',
   'arrow-up', 'arrow-down', 'user', 'sparkle', 'wand-sparkles', 'chart-no-axes-column', 'funnel', 'circle-dot', 'loader',
   'map-pin', 'map', 'store', 'phone-call', 'mail-check', 'ban', 'radar', 'scan-search', 'navigation', 'locate-fixed', 'circle-x', 'list-checks', 'gauge',
+  'trophy', 'copy', 'bookmark', 'bookmark-plus', 'rss', 'flask-conical',
 ];
 
 let sprite;

@@ -4,24 +4,18 @@ import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { client, tmp } from './helpers.js';
 
-process.env.NETLIFY_TOKEN = 'nf-test';
-process.env.STRIPE_SECRET_KEY = 'sk_test_x';
-
-const { openDb, get, all, insert } = await import('../src/db.js');
+const { openDb, get, all } = await import('../src/db.js');
 const { createApp } = await import('../src/app.js');
 const { saveSection } = await import('../src/services/settings.js');
 const { setFetch, setLookup, assertPublicUrl } = await import('../src/services/http.js');
 const prospecting = await import('../src/services/prospecting.js');
 const { cleanReply, processParsedMail } = await import('../src/services/mailbox.js');
-const { syncStripePayments } = await import('../src/services/payments.js');
-const { deployDemo, versionDir } = await import('../src/services/projects.js');
 await import('../src/services/jobs.js');
 const scheduler = await import('../src/services/scheduler.js');
 
 const year = new Date().getFullYear();
 const calls = [];
 let overpassCalls = 0;
-const netlifyCalls = [];
 
 const osm = (type, id, tags, lat = 41.0, lng = 29.0) => ({ type, id, lat, lon: lng, tags });
 function overpassElements() {
@@ -39,20 +33,13 @@ function overpassElements() {
 }
 
 const html = (body) => new Response(body, { status: 200, headers: { 'Content-Type': 'text/html' } });
-async function fakeFetch(url, init = {}) {
+async function fakeFetch(url) {
   url = String(url);
   calls.push(url);
   if (url.includes('nominatim')) return Response.json([{ lat: '41.0', lon: '29.0', display_name: 'Kadıköy, İstanbul' }]);
   if (url.includes('overpass')) { overpassCalls++; return Response.json({ elements: overpassElements() }); }
   if (url.startsWith('http://lezzet.test')) return html('<html><head><title>Lezzet</title></head><body>© 2015 Lezzet</body></html>');
   if (url.startsWith('https://modern.test')) return html(`<html><head><meta name="viewport" content="width=device-width"><title>Modern</title></head><body>© ${year}</body></html>`);
-  if (url.startsWith('https://api.stripe.com/v1/checkout/sessions/cs_test_1')) return Response.json({ id: 'cs_test_1', payment_status: 'paid', payment_intent: 'pi_1' });
-  if (url.startsWith('https://api.stripe.com/v1/checkout/sessions/')) return Response.json({ payment_status: 'unpaid' });
-  if (url.startsWith('https://api.netlify.com/api/v1/')) {
-    netlifyCalls.push({ url, init });
-    if (url.endsWith('/sites')) return Response.json({ id: 'site-1', ssl_url: 'https://kalfa-demo.netlify.app' });
-    return Response.json({ id: 'dep-1', ssl_url: 'https://kalfa-demo.netlify.app' });
-  }
   throw new Error(`beklenmeyen istek: ${url}`);
 }
 
@@ -64,7 +51,6 @@ before(async () => {
   scheduler.syncJobs();
   setFetch(fakeFetch);
   setLookup(async (host) => [{ address: host === 'intranet.test' ? '10.0.0.5' : '93.184.216.34' }]);
-  insert('products', { name: 'Landing Page', price: 4000, currency: 'TRY', description: 'Tek sayfa' });
   saveSection('business', { name: 'Kalfa Test', owner_name: 'Deniz' });
   server = createApp().listen(0);
   admin = client(`http://127.0.0.1:${server.address().port}`);
@@ -157,7 +143,6 @@ describe('bölge taraması', () => {
 
     const inbound = await admin.req('POST', `/api/conversations/${convId}/inbound`, { text: 'Merhaba, fiyatınız ne kadar?' });
     assert.equal(inbound.status, 200);
-    assert.ok(inbound.data.reply);
     assert.equal(byName('Makas Kuaför').status, 'replied');
     assert.ok(get(`SELECT id FROM notifications WHERE type = 'prospect_replied'`));
 
@@ -191,6 +176,13 @@ describe('bölge taraması', () => {
     saveSection('prospecting', { daily_limit: 20 });
   });
 
+  test('mesaj şablonu değişince yeni taslak şablondan hazırlanır', async () => {
+    saveSection('templates', { prospect_old_site: '{ad} için: {bulgu}. {yetkili} ({isletmem})' });
+    const r = await admin.req('POST', `/api/prospects/${byName('Lezzet Lokantası').id}/analyze`);
+    assert.equal(r.status, 200);
+    assert.match(r.data.message, /^Lezzet Lokantası için: .*mobil uyumlu değil.*\. Deniz \(Kalfa Test\)$/);
+  });
+
   test('zamanlanmış bölge taraması görevi çalışır', async () => {
     const r = await admin.req('POST', '/api/jobs/prospect_scan/run', {});
     assert.equal(r.status, 200, JSON.stringify(r.data));
@@ -215,37 +207,6 @@ describe('yerelde çalışma yardımcıları', () => {
     assert.ok(conv);
     const msgs = all('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id', conv.id);
     assert.equal(msgs[0].body, 'Merhaba, web sitesi fiyatı nedir?');
-    assert.ok(msgs.some((m) => m.sender === 'ai'));
-  });
-
-  test('Stripe ödemeleri webhook olmadan sorgulanıp işaretlenir', async () => {
-    const customerId = insert('customers', { name: 'Kart Müşterisi', email: 'kart@test.com' });
-    const paid = insert('payments', { customer_id: customerId, amount: 1000, method: 'stripe', reference: 'KLF-1', provider_ref: 'cs_test_1' });
-    const waiting = insert('payments', { customer_id: customerId, amount: 500, method: 'stripe', reference: 'KLF-2', provider_ref: 'cs_test_2' });
-    const r = await syncStripePayments();
-    assert.deepEqual(r, { checked: 2, paid: 1 });
-    assert.equal(get('SELECT status FROM payments WHERE id = ?', paid).status, 'paid');
-    assert.equal(get('SELECT status FROM payments WHERE id = ?', waiting).status, 'pending');
-  });
-
-  test('NETLIFY_TOKEN varsa demo herkese açık adrese yüklenir', async () => {
-    const customerId = insert('customers', { name: 'Demo Müşterisi' });
-    const projectId = insert('projects', { customer_id: customerId, title: 'Demo', status: 'approved', current_version: 1 });
-    const dir = versionDir(projectId, 1);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'index.html'), '<h1>Merhaba</h1>');
-
-    const url = await deployDemo(projectId);
-    assert.equal(url, 'https://kalfa-demo.netlify.app/');
-    assert.equal(get('SELECT demo_url FROM projects WHERE id = ?', projectId).demo_url, url);
-    const deploy = netlifyCalls.find((c) => c.url.endsWith('/deploys'));
-    assert.equal(deploy.init.headers['Content-Type'], 'application/zip');
-    assert.equal(Buffer.from(deploy.init.body).subarray(0, 2).toString(), 'PK');
-
-    // Redeploy reuses the same Netlify site.
-    netlifyCalls.length = 0;
-    await deployDemo(projectId);
-    assert.ok(!netlifyCalls.some((c) => c.url.endsWith('/sites')));
-    assert.ok(netlifyCalls.some((c) => c.url.includes('/sites/site-1/deploys')));
+    assert.ok(get(`SELECT id FROM notifications WHERE subject LIKE 'Yeni mesaj%'`), 'size bildirim gitmeli');
   });
 });

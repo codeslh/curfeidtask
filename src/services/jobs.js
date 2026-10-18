@@ -1,50 +1,34 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { PassThrough } from 'node:stream';
 import { config, dataPath } from '../config.js';
 import { all, get, getDb, run, update } from '../db.js';
-import { monthTokenUsage } from './ai.js';
 import { notifyAdmin } from './notify.js';
 import { pollMailbox } from './mailbox.js';
-import { paymentInstructions, syncStripePayments } from './payments.js';
 import { autoSend, scan as scanArea } from './prospecting.js';
-import { aiAnalysis, monthlyPdf, monthStats } from './reports.js';
-import { aiFollowup, sendToCustomer } from './sales.js';
-import { scanPlatforms } from './scanner.js';
 import { defineJob } from './scheduler.js';
-import { getSection, toBase } from './settings.js';
+import { getSection } from './settings.js';
+import { scanSources } from './sources.js';
 
 const isoAgo = (ms) => new Date(Date.now() - ms).toISOString();
 const sqlAgo = (ms) => isoAgo(ms).replace('T', ' ').slice(0, 19); // matches datetime('now') columns
 
-function pdfBuffer(write) {
-  return new Promise((resolve, reject) => {
-    const out = new PassThrough();
-    const chunks = [];
-    out.on('data', (c) => chunks.push(c));
-    out.on('end', () => resolve(Buffer.concat(chunks)));
-    out.on('error', reject);
-    write(out);
-  });
-}
-
-// --- Sales & customer follow-up -----------------------------------------------------
+// --- Finding customers -----------------------------------------------------------------
 
 defineJob('platform_scan', {
-  label: 'Freelancer platform taraması',
-  description: 'Seçili platformları tarama kapsamına göre tarar; iletişim bilgisi olan ilan sahiplerine yazar, olmayanları admine bildirir.',
+  label: 'İş ilanı taraması',
+  description: 'Kaynaklar sayfasındaki siteleri (Freelancer.com, R10.net, RSS ve izlenen sayfalar) tarar; anahtar kelimelerinize uyan yeni ilanları listeye ekler ve size bildirir.',
   defaultSchedule: { type: 'interval', minutes: config.scanner.intervalMinutes },
   defaultEnabled: config.scanner.enabled,
   async run() {
-    const r = await scanPlatforms();
+    const r = await scanSources();
     if (r.skipped) return 'Önceki tarama hâlâ sürüyor, atlandı';
-    return `${r.fetched} ilan: ${r.contacted} iletişim, ${r.needs_admin} admine, ${r.filtered} kapsam dışı, ${r.duplicate} tekrar${r.errors.length ? ` · ${r.errors.length} hata` : ''}`;
+    return `${r.sources} kaynak, ${r.fetched} ilan okundu: ${r.added} yeni (${r.matched} uygun)${r.errors.length ? ` · ${r.errors.length} kaynakta hata` : ''}`;
   },
 });
 
 defineJob('prospect_scan', {
   label: 'Bölge taraması',
-  description: 'Belirlediğiniz bölgedeki işletmeleri tarar, web sitelerini inceler ve yapay zekayla puanlayıp mesaj taslağı hazırlar. "Otomatik gönder" açıksa günlük sınır içinde e-posta / WhatsApp şablonuyla yazar.',
+  description: 'Belirlediğiniz bölgedeki işletmeleri tarar, web sitelerini inceler, puanlar ve mesaj şablonundan taslak hazırlar. "Otomatik gönder" açıksa günlük sınır içinde e-postayla yazar.',
   defaultSchedule: { type: 'daily', time: '10:30' },
   defaultEnabled: false,
   async run() {
@@ -65,7 +49,7 @@ defineJob('prospect_scan', {
 
 defineJob('email_inbox', {
   label: 'Gelen e-postalar',
-  description: 'IMAP gelen kutusunu okur; tanıdık müşterilerden ve iletişime geçilen işletmelerden gelen cevapları konuşmalara ekler, yapay zeka yanıtlar.',
+  description: 'IMAP gelen kutusunu okur; yazdığınız işletmelerden ve ilan sahiplerinden gelen cevapları Konuşmalar\'a ekler ve size bildirir.',
   defaultSchedule: { type: 'interval', minutes: 2 },
   async run() {
     const r = await pollMailbox();
@@ -73,168 +57,57 @@ defineJob('email_inbox', {
   },
 });
 
-defineJob('stripe_sync', {
-  label: 'Kart ödemesi kontrolü',
-  description: 'Bekleyen Stripe ödemelerinin durumunu sorgular; webhook gerekmediği için kendi bilgisayarınızda da çalışır.',
-  defaultSchedule: { type: 'interval', minutes: 5 },
-  async run() {
-    const r = await syncStripePayments();
-    return r.skipped ? 'Stripe ayarlı değil' : `${r.checked} ödeme kontrol edildi, ${r.paid} ödendi`;
-  },
-});
-
-defineJob('customer_followups', {
-  label: 'Cevapsız müşteriye takip mesajı',
-  description: 'Yapay zekanın son mesajına belirli süre cevap vermeyen (henüz iş alınmamış) müşterilere nazik bir takip mesajı gönderir.',
+defineJob('reply_reminders', {
+  label: 'Cevap bekleyen mesaj uyarısı',
+  description: 'Size cevap yazan ama henüz yanıtlamadığınız kişiler için belirli aralıklarla hatırlatma gönderir.',
   defaultSchedule: { type: 'interval', minutes: 60 },
   async run() {
-    const { followup_after_hours, followup_max } = getSection('automation');
-    const convs = all(`SELECT c.* FROM conversations c
-      WHERE c.mode = 'ai' AND c.status = 'open' AND c.project_id IS NULL AND c.channel != 'platform'
-        AND c.followup_count < ? AND c.last_message_at <= ?
-        AND (SELECT sender FROM messages m WHERE m.conversation_id = c.id AND m.sender != 'system' ORDER BY id DESC LIMIT 1) = 'ai'
-        AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.sender = 'customer')`,
-    followup_max, sqlAgo(followup_after_hours * 36e5));
-    let sent = 0;
-    for (const conv of convs) {
-      const text = await aiFollowup(conv);
-      if (!text) continue;
-      run('UPDATE conversations SET followup_count = followup_count + 1 WHERE id = ?', conv.id);
-      await sendToCustomer(conv.id, text);
-      sent++;
-    }
-    return `${sent} takip mesajı gönderildi`;
-  },
-});
-
-defineJob('payment_reminders', {
-  label: 'Ödeme hatırlatmaları',
-  description: 'Bekleyen ödemeler için müşteriye düzenli hatırlatma gönderir; vadesi geçen ödemeleri admine bildirir.',
-  defaultSchedule: { type: 'daily', time: '10:00' },
-  async run() {
-    const { payment_reminder_days, payment_max_reminders } = getSection('automation');
-    const { payment_due_days } = getSection('payments');
-    const pending = all(`SELECT pay.*, p.conversation_id, p.title, c.name AS customer_name FROM payments pay
-      LEFT JOIN projects p ON p.id = pay.project_id LEFT JOIN customers c ON c.id = pay.customer_id WHERE pay.status = 'pending'`);
-    let reminded = 0; let overdue = 0;
-    for (const pay of pending) {
-      const last = new Date(pay.last_reminder_at || `${pay.created_at.replace(' ', 'T')}Z`).getTime();
-      if (pay.conversation_id && pay.reminder_count < payment_max_reminders && Date.now() - last >= payment_reminder_days * 864e5) {
-        await sendToCustomer(pay.conversation_id,
-          `Merhaba, "${pay.title}" için ödemeniz henüz bize ulaşmadı. Hatırlatma amacıyla bilgileri tekrar paylaşıyoruz:\n\n${paymentInstructions(pay)}\n\nÖdemeyi yaptıysanız bu mesajı dikkate almayın.`);
-        update('payments', pay.id, { reminder_count: pay.reminder_count + 1, last_reminder_at: new Date().toISOString() });
-        reminded++;
-      }
-      const ageDays = (Date.now() - new Date(`${pay.created_at.replace(' ', 'T')}Z`).getTime()) / 864e5;
-      if (ageDays > payment_due_days && !pay.overdue_notified) {
-        await notifyAdmin('payment_overdue', `Vadesi geçen ödeme: ${pay.customer_name || pay.reference}`,
-          `${pay.amount} ${pay.currency} · ${pay.reference}\nProje: ${pay.title || '-'}\n${Math.floor(ageDays)} gündür bekliyor, ${pay.reminder_count} hatırlatma gönderildi.`, '/payments');
-        update('payments', pay.id, { overdue_notified: 1 });
-        overdue++;
-      }
-    }
-    return `${reminded} hatırlatma, ${overdue} vadesi geçmiş ödeme bildirimi`;
-  },
-});
-
-defineJob('escalation_reminders', {
-  label: 'Bekleyen konuşma uyarısı',
-  description: 'Admine aktarılıp belirli süredir cevaplanmayan konuşmalar için yeniden uyarı gönderir.',
-  defaultSchedule: { type: 'interval', minutes: 30 },
-  async run() {
-    const { escalation_renotify_minutes } = getSection('automation');
-    const cutoff = sqlAgo(escalation_renotify_minutes * 60_000);
+    const { reply_reminder_hours } = getSection('automation');
+    const cutoff = sqlAgo(reply_reminder_hours * 36e5);
     const waiting = all(`SELECT c.*, cu.name FROM conversations c LEFT JOIN customers cu ON cu.id = c.customer_id
-      WHERE c.status = 'escalated' AND c.last_message_at <= ?
-        AND (c.last_escalation_notice_at IS NULL OR c.last_escalation_notice_at <= ?)
-        AND (SELECT sender FROM messages m WHERE m.conversation_id = c.id AND m.sender != 'system' ORDER BY id DESC LIMIT 1) != 'admin'`,
-    cutoff, isoAgo(escalation_renotify_minutes * 60_000));
+      WHERE c.status = 'open' AND c.last_message_at <= ?
+        AND (c.last_reminder_at IS NULL OR c.last_reminder_at <= ?)
+        AND (SELECT sender FROM messages m WHERE m.conversation_id = c.id AND m.sender != 'system' ORDER BY id DESC LIMIT 1) = 'customer'`,
+    cutoff, isoAgo(reply_reminder_hours * 36e5));
     for (const c of waiting) {
-      await notifyAdmin('escalation', `Hâlâ cevap bekleniyor: ${c.name || '#' + c.id}`,
-        `Bu konuşma ${escalation_renotify_minutes} dakikadan uzun süredir yanıtsız.\nSebep: ${c.escalation_reason || '-'}`, `/conversations/${c.id}`);
-      update('conversations', c.id, { last_escalation_notice_at: new Date().toISOString() });
+      await notifyAdmin('reply_waiting', `Cevabınızı bekliyor: ${c.name || '#' + c.id}`,
+        `Bu kişi ${reply_reminder_hours} saatten uzun süredir cevabınızı bekliyor.`, `/conversations/${c.id}`);
+      update('conversations', c.id, { last_reminder_at: new Date().toISOString() });
     }
-    return `${waiting.length} konuşma için uyarı gönderildi`;
+    return `${waiting.length} konuşma için hatırlatma gönderildi`;
   },
 });
-
-// --- Reports -------------------------------------------------------------------------
 
 defineJob('daily_digest', {
   label: 'Günlük özet e-postası',
-  description: 'Her sabah dünkü satış, konuşma, ilan, ödeme ve güvenlik olaylarını özetleyen bir e-posta gönderir.',
+  description: 'Her sabah dün bulunan ilanları, işletmeleri, gönderdiğiniz mesajları, gelen cevapları ve güvenlik olaylarını özetler.',
   defaultSchedule: { type: 'daily', time: '08:30' },
   async run() {
     const since = sqlAgo(864e5);
+    const sinceIso = isoAgo(864e5);
     const n = (sql, ...p) => get(sql, ...p).n;
-    const base = getSection('business').base_currency;
-    const paid = all('SELECT amount, currency FROM payments WHERE paid_at >= ?', isoAgo(864e5));
-    const revenue = paid.reduce((s, p) => s + toBase(p.amount, p.currency), 0);
     const admins2fa = n(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1 AND totp_enabled = 0`);
+    const top = all(`SELECT title, platform, url FROM leads WHERE status = 'new' AND created_at >= ? ORDER BY score DESC LIMIT 5`, since);
     const lines = [
-      `Son 24 saat:`,
-      `• Yeni konuşma: ${n('SELECT COUNT(*) AS n FROM conversations WHERE created_at >= ?', since)}`,
-      `• Yeni müşteri: ${n('SELECT COUNT(*) AS n FROM customers WHERE created_at >= ?', since)}`,
-      `• Taranan ilan: ${n('SELECT COUNT(*) AS n FROM leads WHERE created_at >= ?', since)} (admin bekleyen: ${n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'needs_admin'`)})`,
-      `• Alınan iş: ${n('SELECT COUNT(*) AS n FROM projects WHERE created_at >= ?', since)}`,
-      `• Tahsilat: ${revenue.toFixed(2)} ${base} (${paid.length} ödeme)`,
+      'Son 24 saat:',
+      `• Yeni uygun ilan: ${n(`SELECT COUNT(*) AS n FROM leads WHERE status != 'filtered_out' AND created_at >= ?`, since)}`,
+      `• Yeni işletme (bölge taraması): ${n('SELECT COUNT(*) AS n FROM prospects WHERE created_at >= ?', since)}`,
+      `• Gönderdiğiniz mesaj: ${n('SELECT COUNT(*) AS n FROM leads WHERE contacted_at >= ?', sinceIso) + n('SELECT COUNT(*) AS n FROM prospects WHERE contacted_at >= ?', sinceIso)}`,
+      `• Gelen cevap: ${n(`SELECT COUNT(*) AS n FROM messages WHERE sender = 'customer' AND created_at >= ?`, since)}`,
       '',
-      'Bekleyen işler:',
-      `• Admine aktarılmış konuşma: ${n(`SELECT COUNT(*) AS n FROM conversations WHERE status = 'escalated'`)}`,
-      `• Kontrol bekleyen proje: ${n(`SELECT COUNT(*) AS n FROM projects WHERE status IN ('review','changes_requested','build_failed')`)}`,
-      `• Bekleyen ödeme: ${n(`SELECT COUNT(*) AS n FROM payments WHERE status = 'pending'`)}`,
+      'Bekleyenler:',
+      `• İncelenmemiş uygun ilan: ${n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'new'`)}`,
+      `• Yazılmayı bekleyen sıcak işletme: ${n(`SELECT COUNT(*) AS n FROM prospects WHERE status = 'analyzed' AND score >= ?`, getSection('prospecting').min_score)}`,
+      `• Cevabınızı bekleyen konuşma: ${n(`SELECT COUNT(*) AS n FROM conversations c WHERE c.status = 'open' AND (SELECT sender FROM messages m WHERE m.conversation_id = c.id AND m.sender != 'system' ORDER BY id DESC LIMIT 1) = 'customer'`)}`,
+      ...(top.length ? ['', 'Öne çıkan ilanlar:', ...top.map((l) => `• [${l.platform}] ${l.title}${l.url ? `\n  ${l.url}` : ''}`)] : []),
       '',
       'Güvenlik:',
       `• Şüpheli olay: ${n('SELECT COUNT(*) AS n FROM login_events WHERE suspicious = 1 AND created_at >= ?', since)}`,
       `• Hatalı giriş: ${n(`SELECT COUNT(*) AS n FROM login_events WHERE event IN ('login_failed','2fa_failed') AND created_at >= ?`, since)}`,
       ...(admins2fa ? [`• ${admins2fa} yönetici hesabında iki adımlı doğrulama KAPALI.`] : []),
-      '',
-      `Yapay zeka bu ay ${monthTokenUsage().toLocaleString('tr-TR')} token kullandı.`,
     ];
     await notifyAdmin('daily_digest', `Günlük özet - ${new Date().toLocaleDateString('tr-TR')}`, lines.join('\n'), '/dashboard');
     return 'Özet gönderildi';
-  },
-});
-
-defineJob('monthly_report', {
-  label: 'Aylık rapor (PDF)',
-  description: 'Her ayın başında geçen ayın özetini yapay zeka değerlendirmesiyle birlikte PDF olarak e-postayla gönderir.',
-  defaultSchedule: { type: 'monthly', day: 1, time: '09:00' },
-  async run({ state }) {
-    const d = new Date();
-    const month = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
-    let analysis = '';
-    try { analysis = await aiAnalysis(month); } catch (err) { analysis = `Yapay zeka değerlendirmesi alınamadı: ${err.message}`; }
-    const pdf = await pdfBuffer((out) => monthlyPdf(month, out, analysis));
-    const s = monthStats(month);
-    await notifyAdmin('monthly_report', `${month} aylık raporu`,
-      `Net ciro: ${s.revenue} ${s.currency}\nGider: ${s.expenses} ${s.currency}\nKâr: ${s.profit} ${s.currency}\nYeni müşteri: ${s.new_customers}\nAlınan iş: ${s.projects_won}\n\nAyrıntılar ekteki PDF'te.`,
-      '/dashboard', [{ filename: `rapor-${month}.pdf`, content: pdf }]);
-    state.last_month = month;
-    return `${month} raporu gönderildi`;
-  },
-});
-
-defineJob('token_budget_watch', {
-  label: 'Yapay zeka bütçe takibi',
-  description: 'Aylık token kullanımı belirlenen yüzdeyi geçince bir kez uyarır.',
-  defaultSchedule: { type: 'interval', minutes: 60 },
-  async run({ state }) {
-    const { monthly_token_budget } = getSection('ai');
-    const { token_budget_warn_percent } = getSection('automation');
-    if (!monthly_token_budget) return 'Bütçe sınırsız';
-    const used = monthTokenUsage();
-    const pct = Math.round((used / monthly_token_budget) * 100);
-    const month = new Date().toISOString().slice(0, 7);
-    for (const level of [100, token_budget_warn_percent]) {
-      if (pct >= level && state[`warned_${level}`] !== month) {
-        state[`warned_${level}`] = month;
-        await notifyAdmin('ai_budget', level >= 100 ? 'Yapay zeka aylık bütçesi DOLDU' : `Yapay zeka bütçesinin %${pct}'i kullanıldı`,
-          `Bu ay ${used.toLocaleString('tr-TR')} / ${monthly_token_budget.toLocaleString('tr-TR')} token kullanıldı.${level >= 100 ? '\nYeni konuşmalar admine aktarılıyor. Ayarlar → Yapay zeka bölümünden bütçeyi artırabilirsiniz.' : ''}`, '/settings');
-        break;
-      }
-    }
-    return `Kullanım %${pct}`;
   },
 });
 
@@ -242,17 +115,11 @@ defineJob('token_budget_watch', {
 
 defineJob('security_scan', {
   label: 'Güvenlik taraması',
-  description: 'Olağan dışı iade hacmi, aynı hesaba çok sayıda IP adresinden erişim ve kurtarma kodu azalması gibi durumları tarar.',
+  description: 'Aynı hesaba çok sayıda IP adresinden erişim, kurtarma kodu azalması ve sık yedek indirme gibi durumları tarar.',
   defaultSchedule: { type: 'interval', minutes: 30 },
   async run({ state }) {
     const findings = [];
-    const { max_refunds_per_day } = getSection('security');
-    const refunds = get('SELECT COUNT(*) AS n FROM refunds WHERE created_at >= ?', sqlAgo(864e5)).n;
     const today = new Date().toISOString().slice(0, 10);
-    if (refunds > max_refunds_per_day && state.refund_alert !== today) {
-      state.refund_alert = today;
-      findings.push(`Son 24 saatte ${refunds} iade yapıldı (eşik: ${max_refunds_per_day}).`);
-    }
     const multiIp = all(`SELECT s.user_id, u.email, COUNT(DISTINCT s.ip) AS ips FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.revoked_at IS NULL AND s.last_seen_at >= ? GROUP BY s.user_id HAVING ips >= 3`, sqlAgo(36e5));
     for (const m of multiIp) {

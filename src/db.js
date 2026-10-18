@@ -38,38 +38,6 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS products (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  category TEXT NOT NULL DEFAULT '',
-  price REAL NOT NULL DEFAULT 0,
-  currency TEXT NOT NULL DEFAULT 'TRY',
-  features TEXT NOT NULL DEFAULT '',
-  demo_url TEXT NOT NULL DEFAULT '',
-  image_url TEXT NOT NULL DEFAULT '',
-  active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS themes (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  preview_url TEXT NOT NULL DEFAULT '',
-  style_guide TEXT NOT NULL DEFAULT '',  -- colours/fonts/layout notes handed to the AI builder
-  active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS languages (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,                    -- e.g. "HTML/CSS/JS", "React", "Laravel"
-  description TEXT NOT NULL DEFAULT '',
-  active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
 CREATE TABLE IF NOT EXISTS customers (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL DEFAULT '',
@@ -84,8 +52,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   customer_id INTEGER REFERENCES customers(id),
   channel TEXT NOT NULL,                 -- whatsapp | web | platform | email
   external_id TEXT,                      -- phone number / platform thread id / web token
-  mode TEXT NOT NULL DEFAULT 'ai',       -- ai | human
-  status TEXT NOT NULL DEFAULT 'open',   -- open | escalated | closed
+  mode TEXT NOT NULL DEFAULT 'human',    -- legacy column, always human now
+  status TEXT NOT NULL DEFAULT 'open',   -- open | closed
   escalation_reason TEXT,
   project_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -96,7 +64,7 @@ CREATE INDEX IF NOT EXISTS conversations_ext ON conversations(channel, external_
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY,
   conversation_id INTEGER NOT NULL REFERENCES conversations(id),
-  sender TEXT NOT NULL,                  -- customer | ai | admin | system
+  sender TEXT NOT NULL,                  -- customer | admin | system
   body TEXT NOT NULL,
   meta TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -105,7 +73,7 @@ CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id);
 
 CREATE TABLE IF NOT EXISTS leads (
   id INTEGER PRIMARY KEY,
-  platform TEXT NOT NULL,
+  platform TEXT NOT NULL,                -- freelancer | bionluk | armut | r10 | hallederim | rss | web | manual ...
   external_id TEXT NOT NULL,
   title TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
@@ -114,103 +82,24 @@ CREATE TABLE IF NOT EXISTS leads (
   url TEXT,
   skills TEXT NOT NULL DEFAULT '',
   client_name TEXT,
-  contact TEXT,                          -- JSON {email, phone, platform_message}
-  status TEXT NOT NULL DEFAULT 'new',    -- new | filtered_out | contacted | needs_admin | won | lost
+  contact TEXT,                          -- JSON {email, phone}
+  status TEXT NOT NULL DEFAULT 'new',    -- new | filtered_out | contacted | replied | won | lost | ignored
   filter_reason TEXT,
   customer_id INTEGER, conversation_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(platform, external_id)
 );
 
-CREATE TABLE IF NOT EXISTS projects (
+-- Where leads come from: Freelancer.com API, RSS feeds and watched public listing pages.
+CREATE TABLE IF NOT EXISTS sources (
   id INTEGER PRIMARY KEY,
-  customer_id INTEGER REFERENCES customers(id),
-  conversation_id INTEGER,
-  lead_id INTEGER,
-  title TEXT NOT NULL,
-  requirements TEXT NOT NULL DEFAULT '',
-  theme_id INTEGER, language_id INTEGER,
-  status TEXT NOT NULL DEFAULT 'won',
-  price REAL NOT NULL DEFAULT 0,
-  currency TEXT NOT NULL DEFAULT 'TRY',
-  current_version INTEGER NOT NULL DEFAULT 0,
-  demo_slug TEXT UNIQUE,
-  demo_url TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS project_versions (
-  id INTEGER PRIMARY KEY,
-  project_id INTEGER NOT NULL REFERENCES projects(id),
-  version INTEGER NOT NULL,
-  summary TEXT NOT NULL DEFAULT '',
-  feedback TEXT,
-  file_count INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(project_id, version)
-);
-
-CREATE TABLE IF NOT EXISTS project_events (
-  id INTEGER PRIMARY KEY,
-  project_id INTEGER NOT NULL REFERENCES projects(id),
-  type TEXT NOT NULL,
-  message TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS payments (
-  id INTEGER PRIMARY KEY,
-  project_id INTEGER, customer_id INTEGER,
-  amount REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'TRY',
-  method TEXT NOT NULL,                  -- iban | stripe
-  status TEXT NOT NULL DEFAULT 'pending',-- pending | paid | refunded | partially_refunded | failed | cancelled
-  reference TEXT NOT NULL,               -- payment reference the customer writes on the transfer
-  provider_ref TEXT,
-  checkout_url TEXT,
-  refunded_amount REAL NOT NULL DEFAULT 0,
-  note TEXT,
-  paid_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS refunds (
-  id INTEGER PRIMARY KEY,
-  payment_id INTEGER NOT NULL REFERENCES payments(id),
-  amount REAL NOT NULL,
-  reason TEXT,
-  provider_ref TEXT,
-  created_by INTEGER,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS invoices (
-  id INTEGER PRIMARY KEY,
-  number TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL DEFAULT 'sale',     -- sale | refund
-  payment_id INTEGER, project_id INTEGER, customer_id INTEGER,
-  subtotal REAL NOT NULL, tax_rate REAL NOT NULL, tax_amount REAL NOT NULL, total REAL NOT NULL,
-  currency TEXT NOT NULL,
-  issued_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS expenses (
-  id INTEGER PRIMARY KEY,
-  category TEXT NOT NULL,                -- ai | hosting | ads | software | other
-  amount REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'TRY',
-  description TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS ai_usage (
-  id INTEGER PRIMARY KEY,
-  purpose TEXT NOT NULL,
-  model TEXT NOT NULL,
-  input_tokens INTEGER NOT NULL DEFAULT 0,
-  output_tokens INTEGER NOT NULL DEFAULT 0,
-  cost_usd REAL NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL,                    -- freelancer_api | rss | page
+  platform TEXT NOT NULL DEFAULT 'web',  -- see PLATFORMS in services/sources.js
+  name TEXT NOT NULL,
+  url TEXT,
+  link_pattern TEXT,                     -- page: only links containing this text (or /regex/)
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_run_at TEXT, last_status TEXT, last_message TEXT, last_count INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -290,7 +179,7 @@ CREATE TABLE IF NOT EXISTS prospects (
   signals TEXT,                          -- JSON array of human-readable findings
   score INTEGER,                         -- 0-100 likelihood of needing a website
   score_reason TEXT,
-  suggested_product TEXT,
+  suggested_product TEXT,                -- unused (kept for older databases)
   message TEXT,                          -- drafted outreach message (editable)
   status TEXT NOT NULL DEFAULT 'new',    -- new | analyzed | contacted | replied | opted_out | skipped | converted
   channel TEXT,                          -- email | whatsapp | whatsapp_link | phone
@@ -330,14 +219,17 @@ const COLUMNS = {
     last_login_at: 'TEXT',
     totp_last_counter: 'INTEGER NOT NULL DEFAULT 0', // blocks replay of an already used code
   },
+  leads: {
+    score: 'INTEGER',                    // keyword/budget match, 0-100
+    posted_at: 'TEXT',
+    contacted_at: 'TEXT',
+    notes: "TEXT NOT NULL DEFAULT ''",
+    source_id: 'INTEGER',
+  },
   conversations: {
     followup_count: 'INTEGER NOT NULL DEFAULT 0',
     last_escalation_notice_at: 'TEXT',
-  },
-  payments: {
-    reminder_count: 'INTEGER NOT NULL DEFAULT 0',
-    last_reminder_at: 'TEXT',
-    overdue_notified: 'INTEGER NOT NULL DEFAULT 0',
+    last_reminder_at: 'TEXT',            // "unanswered message" alert
   },
 };
 
@@ -348,6 +240,9 @@ function migrate(d) {
       if (!existing.has(col)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
     }
   }
+  // Statuses from the earlier AI version that no longer exist.
+  d.exec(`UPDATE leads SET status = 'new' WHERE status = 'needs_admin';
+          UPDATE conversations SET status = 'open', mode = 'human' WHERE status = 'escalated' OR mode = 'ai';`);
 }
 
 let db;

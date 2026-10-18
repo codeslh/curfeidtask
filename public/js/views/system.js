@@ -222,9 +222,8 @@ export async function viewAudit(main) {
 // --- Scheduled tasks ------------------------------------------------------------------------
 
 const JOB_ICON = {
-  platform_scan: 'target', customer_followups: 'message-circle', payment_reminders: 'credit-card', escalation_reminders: 'circle-alert',
-  daily_digest: 'calendar', monthly_report: 'file-text', token_budget_watch: 'cpu', security_scan: 'shield', backup: 'download', cleanup: 'trash-2',
-  prospect_scan: 'radar', email_inbox: 'mail', stripe_sync: 'credit-card',
+  platform_scan: 'target', prospect_scan: 'radar', email_inbox: 'mail', reply_reminders: 'circle-alert',
+  daily_digest: 'calendar', security_scan: 'shield', backup: 'download', cleanup: 'trash-2',
 };
 
 export async function viewJobs(main) {
@@ -273,68 +272,65 @@ export async function viewJobs(main) {
 // --- Settings ---------------------------------------------------------------------------------
 
 const SETTINGS = {
-  business: ['İşletme', 'briefcase', 'Ad, iletişim, vergi ve banka bilgileri', [
-    ['name', 'İşletme adı'], ['owner_name', 'Yetkili adı'], ['admin_email', 'Bildirim e-postası', 'email'], ['timezone', 'Saat dilimi'],
-    ['base_currency', 'Ana para birimi'], ['tax_rate', 'KDV oranı (%)', 'number'],
-    ['iban', 'IBAN'], ['iban_holder', 'Hesap sahibi'], ['bank_name', 'Banka'],
-    ['fx_rates', 'Döviz kurları (1 birim = ? ana para)', 'json'],
+  business: ['İşletme', 'briefcase', 'Adınız ve mesaj imzasında kullanılan bilgiler', [
+    ['name', 'İşletme / marka adı'], ['owner_name', 'Adınız'], ['admin_email', 'Bildirim e-postası', 'email'], ['phone', 'Telefonunuz'],
+    ['website', 'Web siteniz / portfolyonuz'], ['timezone', 'Saat dilimi'], ['base_currency', 'Ana para birimi'],
+    ['fx_rates', 'Döviz kurları (1 birim = ? ana para; bütçe filtresi için)', 'json'],
   ]],
-  ai: ['Yapay zeka', 'sparkles', 'Satış asistanının davranışı ve bütçesi', [
-    ['enabled', 'Yapay zeka aktif', 'bool'], ['auto_build', 'İş alınınca otomatik geliştirmeye başla', 'bool'],
-    ['sales_persona', 'Satış temsilcisi kişiliği', 'textarea'], ['max_discount_percent', 'En fazla indirim (%)', 'number'],
-    ['monthly_token_budget', 'Aylık token bütçesi (0 = sınırsız)', 'number'], ['escalate_after_unsatisfied', 'Kaç memnuniyetsiz yanıttan sonra size aktarılsın', 'number'],
-  ]],
-  scanner: ['Platform taraması', 'target', 'Hangi ilanların alınacağı', [
-    ['enabled_platforms', 'Taranacak platformlar', 'platforms'], ['keywords', 'Anahtar kelimeler', 'list'], ['exclude_keywords', 'Hariç kelimeler', 'list'],
+  scanner: ['İş ilanları', 'target', 'Hangi ilanların uygun sayılacağı', [
+    ['keywords', 'Anahtar kelimeler (biri geçmeli)', 'list'], ['exclude_keywords', 'Hariç kelimeler', 'list'],
     ['min_budget', 'En düşük bütçe (ana para)', 'number'], ['max_budget', 'En yüksek bütçe (0 = sınırsız)', 'number'], ['currencies', 'Para birimleri (boş = hepsi)', 'list'],
-    ['max_age_hours', 'En fazla ilan yaşı (saat)', 'number'], ['max_leads_per_scan', 'Tarama başına en fazla ilan', 'number'],
-    ['rss_feeds', 'RSS beslemeleri — [{"name":"..","url":".."}]', 'json'],
+    ['max_age_hours', 'En fazla ilan yaşı (saat)', 'number'], ['max_leads_per_scan', 'Kaynak başına en fazla ilan', 'number'],
+    ['notify_new', 'Yeni uygun ilan bulununca e-postayla bildir', 'bool'],
   ]],
-  payments: ['Ödeme', 'credit-card', 'Tahsilat yöntemi ve vade', [
-    ['provider', 'Ödeme yöntemi', 'provider'], ['send_iban_automatically', 'Müşteri onaylayınca ödeme bilgisini otomatik gönder', 'bool'], ['payment_due_days', 'Ödeme süresi (gün)', 'number'],
+  templates: ['Mesaj şablonları', 'message-square-text', 'İşletmelere ve ilan sahiplerine yazılan hazır mesajlar', [
+    ['_help', '', 'help'],
+    ['prospect_no_site', 'İşletme — web sitesi yok', 'textarea'], ['prospect_social', 'İşletme — sadece sosyal medya var', 'textarea'],
+    ['prospect_old_site', 'İşletme — sitesi eski / zayıf', 'textarea'], ['prospect_subject', 'İşletme e-posta konusu'],
+    ['lead_message', 'İş ilanı sahibine mesaj', 'textarea'], ['lead_subject', 'İlan e-posta konusu'],
+  ]],
+  prospecting: ['Bölge taraması', 'radar', 'Konum, kategoriler ve gönderim kuralları', [
+    ['location', 'Taranacak konum (semt, ilçe veya adres)'], ['radius_km', 'Yarıçap (km)', 'number'],
+    ['source', 'Veri kaynağı', 'prospect_source'],
+    ['categories', 'İşletme kategorileri', 'prospect_categories'],
+    ['min_score', 'İletişime geçilecek en düşük puan (0-100)', 'number'], ['max_per_scan', 'Tarama başına en fazla yeni işletme', 'number'],
+    ['auto_send', 'Zamanlanmış taramada otomatik e-posta gönder', 'bool'], ['daily_limit', 'Günlük en fazla gönderim', 'number'],
+    ['signature', 'Mesaj imzası (boşsa: adınız · işletme adı)', 'textarea'], ['opt_out_text', 'Her mesajın sonuna eklenen ret cümlesi', 'textarea'],
   ]],
   security: ['Güvenlik', 'shield', 'Giriş kuralları ve uyarı eşikleri', [
     ['require_2fa_for_admins', 'Yöneticiler için 2FA zorunlu', 'bool'], ['alert_on_new_ip', 'Yeni IP adresinden girişte uyar', 'bool'],
     ['max_failed_logins', 'Hesap başına hatalı giriş sınırı (15 dk)', 'number'], ['max_failed_per_ip', 'IP başına hatalı giriş sınırı (15 dk)', 'number'],
     ['idle_timeout_minutes', 'Hareketsizlikte oturumu kapat (dk, 0 = kapalı)', 'number'],
     ['allowed_ips', 'İzin verilen IP adresleri (boş = herkes; 192.168.1.* olabilir)', 'list'],
-    ['large_refund_amount', 'Uyarı verilecek iade tutarı', 'number'], ['max_refunds_per_day', 'Günlük iade uyarı eşiği', 'number'],
     ['audit_retention_days', 'Kayıt saklama süresi (gün)', 'number'],
   ]],
-  prospecting: ['Bölge taraması', 'radar', 'Konum, kategoriler ve gönderim kuralları', [
-    ['location', 'Taranacak konum (semt, ilçe veya adres)'], ['radius_km', 'Yarıçap (km)', 'number'],
-    ['source', 'Veri kaynağı', 'prospect_source'], ['prefer_channel', 'Öncelikli kanal', 'channel'],
-    ['categories', 'İşletme kategorileri', 'prospect_categories'],
-    ['min_score', 'İletişime geçilecek en düşük puan (0-100)', 'number'], ['max_per_scan', 'Tarama başına en fazla yeni işletme', 'number'],
-    ['auto_send', 'Zamanlanmış taramada otomatik gönder (yalnızca e-posta / WhatsApp şablonu)', 'bool'], ['daily_limit', 'Günlük en fazla gönderim', 'number'],
-    ['signature', 'Mesaj imzası (boşsa: yetkili adı · işletme adı)', 'textarea'], ['opt_out_text', 'Her mesajın sonuna eklenen ret cümlesi', 'textarea'],
-  ]],
   automation: ['Otomasyon', 'clock', 'Zamanlanmış görevlerin eşikleri', [
-    ['payment_reminder_days', 'Ödeme hatırlatma sıklığı (gün)', 'number'], ['payment_max_reminders', 'En fazla hatırlatma', 'number'],
-    ['followup_after_hours', 'Takip mesajı (saat sonra)', 'number'], ['followup_max', 'En fazla takip mesajı', 'number'],
-    ['escalation_renotify_minutes', 'Bekleyen konuşmayı tekrar bildir (dk)', 'number'], ['token_budget_warn_percent', 'Bütçe uyarı eşiği (%)', 'number'],
+    ['reply_reminder_hours', 'Cevap bekleyen mesajı kaç saat sonra hatırlat', 'number'],
     ['backup_keep', 'Saklanacak yedek sayısı', 'number'], ['notification_retention_days', 'Okunmuş bildirim saklama (gün)', 'number'],
   ]],
 };
 
+const TEMPLATE_HELP = `<div class="callout info span-2">${icon('circle-dot', 'sm')}<span>Şablonlarda şu alanlar otomatik doldurulur:
+  <code>{ad}</code> işletme / ilan sahibi adı, <code>{kategori}</code> işletme türü, <code>{bulgu}</code> site incelemesi bulguları,
+  <code>{ilan}</code> ilan başlığı, <code>{isletmem}</code> <code>{yetkili}</code> <code>{telefonum}</code> <code>{sitem}</code> sizin bilgileriniz.
+  İmza ve "İPTAL" cümlesi işletme mesajlarının sonuna ayrıca eklenir.</span></div>`;
+
 export async function viewSettings(main, sectionParam) {
   const section = SETTINGS[sectionParam] ? sectionParam : 'business';
-  const [settings, platforms, status, pros] = await Promise.all([
-    GET('/settings'), GET('/platforms'), GET('/system/status'), section === 'prospecting' ? GET('/prospects') : Promise.resolve(null),
+  const [settings, status, pros] = await Promise.all([
+    GET('/settings'), GET('/system/status'), section === 'prospecting' ? GET('/prospects') : Promise.resolve(null),
   ]);
   const [title, ic, desc, fields] = SETTINGS[section];
   const v = settings[section];
   const input = ([k, l, t]) => {
     const val = v[k];
+    if (t === 'help') return TEMPLATE_HELP;
     if (t === 'bool') return `<div class="setting-row span-2"><div><b>${l}</b></div>${toggle(k, val)}</div>`;
     if (t === 'textarea') return field(k, l, { type: 'textarea', value: val, span: true, rows: 3 });
     if (t === 'json') return `<label class="field span-2">${l}<textarea name="${k}" class="mono" rows="4">${esc(JSON.stringify(val, null, 2))}</textarea></label>`;
     if (t === 'list') return `<label class="field">${l}<input name="${k}" value="${esc((val || []).join(', '))}" placeholder="virgülle ayırın"><small>Virgülle ayırın</small></label>`;
-    if (t === 'provider') return field(k, l, { options: [['iban', 'IBAN (havale/EFT)'], ['stripe', 'Stripe (kart) + IBAN']], value: val });
     if (t === 'prospect_categories') return `<div class="field span-2">${l}<div class="choice-grid tight">${pros.categories.map((c) => `<label class="choice"><input type="checkbox" data-cat value="${c.key}" ${val.includes(c.key) ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div></div>`;
     if (t === 'prospect_source') return field(k, l, { options: [['osm', 'OpenStreetMap (ücretsiz, anahtarsız)'], ['google', `Google Places${status.google_places ? '' : ' — GOOGLE_PLACES_API_KEY gerekli'}`]], value: val });
-    if (t === 'channel') return field(k, l, { options: [['email', 'E-posta'], ['whatsapp', 'WhatsApp']], value: val });
-    if (t === 'platforms') return `<div class="field span-2">${l}<div class="choice-grid">${platforms.map((p) => `<label class="choice"><input type="checkbox" data-platform value="${p.name}" ${val.includes(p.name) ? 'checked' : ''}><span>${icon('globe', 'sm')} ${esc(p.label)}</span></label>`).join('')}</div></div>`;
     return field(k, l, { type: t || 'text', value: val });
   };
   main.innerHTML = `${pageHeader({ title: 'Ayarlar', subtitle: 'Değişiklikler hemen uygulanır ve denetim kaydına yazılır.' })}
@@ -343,11 +339,11 @@ export async function viewSettings(main, sectionParam) {
     <form class="card settings-panel" id="sf">
       <div class="card-head"><div><h2>${icon(ic, 'sm')} ${title}</h2><p>${desc}</p></div></div>
       ${section === 'business' ? `<div class="sys-status"><h3 class="h-xs">Bağlantılar</h3>${[
-    ['ai', 'Yapay zeka (Claude)', 'ANTHROPIC_API_KEY — yoksa demo modu'], ['smtp', 'E-posta gönderimi', 'SMTP_*'], ['imap', 'Gelen e-postalar', 'IMAP_*'],
-    ['whatsapp_api', 'WhatsApp API', 'WHATSAPP_* — yoksa wa.me aracı modu'], ['stripe', 'Kartla ödeme', 'STRIPE_SECRET_KEY'], ['netlify', 'Demo yayını (internet)', 'NETLIFY_TOKEN — yoksa demo yalnızca bu bilgisayarda açılır'], ['google_places', 'Google Places', 'GOOGLE_PLACES_API_KEY (isteğe bağlı)'],
+    ['smtp', 'E-posta gönderimi', 'SMTP_* — yoksa e-posta gönderilemez'], ['imap', 'Gelen e-postalar', 'IMAP_* — yoksa cevapları elle eklersiniz'],
+    ['whatsapp_api', 'WhatsApp API', 'WHATSAPP_* — yoksa mesajlar wa.me ile kendi WhatsApp\'ınızdan gider'], ['google_places', 'Google Places', 'GOOGLE_PLACES_API_KEY (isteğe bağlı)'],
   ].map(([k, l, h]) => `<div class="sys-row ${status[k] ? 'on' : ''}">${icon(status[k] ? 'circle-check' : 'circle-dot', 'sm')}<b>${l}</b><span>${status[k] ? 'Bağlı' : h}</span></div>`).join('')}
         <p class="muted small">Anahtarlar proje klasöründeki <code>.env</code> dosyasındadır; değiştirdikten sonra uygulamayı yeniden başlatın.</p></div>` : ''}
-      ${section === 'business' ? `<div class="callout info">${icon('shield', 'sm')} IBAN veya bildirim e-postası değişirse tüm yöneticilere güvenlik uyarısı gider.</div>` : ''}
+      ${section === 'business' ? `<div class="callout info">${icon('shield', 'sm')} Bildirim e-postası değişirse eski adrese ve tüm yöneticilere güvenlik uyarısı gider.</div>` : ''}
       <div class="form-grid">${fields.map(input).join('')}</div>
       <div class="settings-foot"><span class="muted small">Son kaydedilen değerler gösteriliyor</span><button class="btn primary">${icon('check', 'sm')} Değişiklikleri kaydet</button></div>
     </form>
@@ -358,7 +354,7 @@ export async function viewSettings(main, sectionParam) {
     const data = {};
     try {
       for (const [k, , t] of fields) {
-        if (t === 'platforms') { data[k] = $$('[data-platform]:checked', form).map((x) => x.value); continue; }
+        if (t === 'help') continue;
         if (t === 'prospect_categories') { data[k] = $$('[data-cat]:checked', form).map((x) => x.value); continue; }
         const el = form.elements[k];
         if (t === 'bool') data[k] = el.checked;

@@ -1,0 +1,364 @@
+// İş ilanı kaynakları: Freelancer.com API, RSS beslemeleri ve herkese açık ilan
+// sayfalarını izleme. Giriş gerektiren siteler (Bionluk, Armut...) için ilanlar
+// tarayıcıdaki "Kalfa'ya ekle" yer imiyle tek tıkla kaydedilir (addManualLead).
+import { config } from '../config.js';
+import { all, get, insert, update } from '../db.js';
+import { assertPublicUrl, httpFetch, USER_AGENT } from './http.js';
+import { addMessage, findOrCreateConversation } from './inbox.js';
+import { notifyAdmin, sendMail } from './notify.js';
+import { getSection, toBase } from './settings.js';
+import { render, template } from './templates.js';
+
+/**
+ * Known platforms. `mode` says how leads get in:
+ *  api       – fetched automatically (Freelancer.com)
+ *  page      – a public listing page can be watched (paste its address)
+ *  bookmark  – listings need a login / the app; save them with the bookmarklet
+ */
+export const PLATFORMS = {
+  freelancer: { home: 'https://www.freelancer.com/jobs', label: 'Freelancer.com', hosts: ['freelancer.com'], mode: 'api',
+    help: 'Herkese açık API ile otomatik taranır; anahtar kelimeleriniz arama sorgusu olarak kullanılır. Teklifi Freelancer.com üzerinden verirsiniz.' },
+  r10: { home: 'https://www.r10.net/', label: 'R10.net', hosts: ['r10.net'], mode: 'page',
+    help: 'Forumun hizmet alım bölümleri herkese açıktır. R10.net\'te ilgili bölümü (ör. web tasarım / yazılım hizmet alımı) açın, adres çubuğundaki adresi kopyalayıp "Sayfa izle" ile ekleyin.' },
+  bionluk: { home: 'https://bionluk.com/', label: 'Bionluk', hosts: ['bionluk.com'], mode: 'bookmark',
+    help: 'Alıcı istekleri yalnızca giriş yapmış freelancerlara gösterilir ve sayfa tarayıcıda oluşturulur, bu yüzden otomatik okunamaz. Bionluk\'ta bir isteği açın ve "Kalfa\'ya ekle" yer imine tıklayın.' },
+  armut: { home: 'https://armut.com/', label: 'Armut', hosts: ['armut.com'], mode: 'bookmark',
+    help: 'Hizmet talepleri yalnızca hizmet veren hesabınızda (Armut Pro) görünür. Talebi açtığınızda "Kalfa\'ya ekle" yer imine tıklayın; teklifi Armut üzerinden verirsiniz.' },
+  hallederim: { label: 'Hallederim', hosts: ['hallederim.com', 'hallederim.com.tr', 'hallederim.net'], mode: 'page',
+    help: 'İlan listesi herkese açıksa adresini "Sayfa izle" ile ekleyin; giriş gerekiyorsa ilanları "Kalfa\'ya ekle" yer imiyle kaydedin.' },
+  upwork: { home: 'https://www.upwork.com/nx/find-work/', label: 'Upwork', hosts: ['upwork.com'], mode: 'bookmark', help: 'Giriş gerektirir; ilanları yer imiyle kaydedin.' },
+  fiverr: { home: 'https://www.fiverr.com/', label: 'Fiverr', hosts: ['fiverr.com'], mode: 'bookmark', help: 'Alıcı istekleri giriş gerektirir; yer imiyle kaydedin.' },
+  rss: { label: 'RSS', hosts: [], mode: 'page', help: 'RSS/Atom beslemesi yayınlayan her iş ilanı sitesi eklenebilir.' },
+  web: { label: 'Diğer site', hosts: [], mode: 'page', help: 'Herkese açık her ilan sayfası izlenebilir.' },
+  manual: { label: 'Elle eklenen', hosts: [], mode: 'bookmark', help: '' },
+};
+
+export function detectPlatform(url) {
+  let host = '';
+  try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { return 'manual'; }
+  for (const [key, p] of Object.entries(PLATFORMS)) {
+    if (p.hosts.some((h) => host === h || host.endsWith(`.${h}`))) return key;
+  }
+  return 'web';
+}
+
+// --- Contact details & filtering -------------------------------------------------------
+
+const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const PHONE_RE = /(?:\+|00)?9?0?\s?5\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}|\+\d{10,14}/;
+
+export function extractContact(text = '') {
+  const email = text.match(EMAIL_RE)?.[0] || null;
+  let phone = text.match(PHONE_RE)?.[0]?.replace(/[^\d+]/g, '') || null;
+  if (phone) {
+    phone = phone.replace(/^\+/, '').replace(/^00/, '');
+    if (phone.startsWith('0')) phone = `9${phone}`;
+    if (phone.startsWith('5')) phone = `90${phone}`;
+  }
+  return { email, phone };
+}
+
+const lower = (s) => String(s || '').toLocaleLowerCase('tr');
+
+/** Apply the admin-defined scope. Returns null when the lead passes, otherwise a reason. */
+export function filterLead(lead, scope) {
+  const text = lower(`${lead.title} ${lead.description} ${(lead.skills || []).join(' ')}`);
+  const keywords = (scope.keywords || []).map(lower).filter(Boolean);
+  if (keywords.length && !keywords.some((k) => text.includes(k))) return 'Anahtar kelime eşleşmedi';
+  const excluded = (scope.exclude_keywords || []).find((k) => k && text.includes(lower(k)));
+  if (excluded) return `Hariç tutulan kelime: ${excluded}`;
+  if (scope.currencies?.length && lead.currency && !scope.currencies.includes(lead.currency)) return `Para birimi: ${lead.currency}`;
+  const top = lead.budget_max ?? lead.budget_min;
+  if (top != null) {
+    const topBase = toBase(top, lead.currency);
+    if (scope.min_budget > 0 && topBase < scope.min_budget) return 'Bütçe alt sınırın altında';
+    const bottomBase = toBase(lead.budget_min ?? top, lead.currency);
+    if (scope.max_budget > 0 && bottomBase > scope.max_budget) return 'Bütçe üst sınırın üstünde';
+  }
+  if (scope.max_age_hours > 0 && lead.posted_at) {
+    const t = new Date(lead.posted_at).getTime();
+    if (!Number.isNaN(t) && (Date.now() - t) / 36e5 > scope.max_age_hours) return 'İlan çok eski';
+  }
+  return null;
+}
+
+/** 0-100: how well a listing matches (keywords in the title count double, budget and contact add points). */
+export function scoreLead(lead, scope) {
+  const title = lower(lead.title);
+  const body = lower(`${lead.description} ${(lead.skills || []).join(' ')}`);
+  let score = 0;
+  for (const k of (scope.keywords || []).map(lower).filter(Boolean)) {
+    if (title.includes(k)) score += 25;
+    else if (body.includes(k)) score += 12;
+  }
+  score = Math.min(score, 60);
+  if (lead.budget_max != null || lead.budget_min != null) score += 15;
+  const c = lead.contact || extractContact(`${lead.title} ${lead.description}`);
+  if (c.email || c.phone) score += 15;
+  if (lead.posted_at && (Date.now() - new Date(lead.posted_at).getTime()) / 36e5 < 24) score += 10;
+  return Math.min(100, score);
+}
+
+// --- Fetchers ------------------------------------------------------------------------------
+
+const decode = (s = '') => s
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+  .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'")
+  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+  .replace(/&amp;/g, '&')
+  .replace(/\s+/g, ' ').trim();
+
+const tag = (xml, name) => {
+  const m = xml.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, 'i'));
+  return m ? m[1] : '';
+};
+
+function parseMoney(text) {
+  const m = text.match(/(?:budget|bütçe)[^0-9$€₺]{0,20}([$€₺])?\s?([\d.,]+)\s*(TL|₺|USD|EUR|\$|€)?/i);
+  if (!m) return { budget_max: null, currency: null };
+  const sym = m[1] || m[3] || '';
+  return {
+    budget_max: Number(m[2].replace(/[.,](?=\d{3}\b)/g, '').replace(',', '.')) || null,
+    currency: /\$|USD/.test(sym) ? 'USD' : /€|EUR/.test(sym) ? 'EUR' : /₺|TL/.test(sym) ? 'TRY' : null,
+  };
+}
+
+export function parseFeed(xml) {
+  const items = xml.match(/<(item|entry)[\s>][\s\S]*?<\/\1>/gi) || [];
+  return items.map((item) => {
+    const link = decode(tag(item, 'link')) || (item.match(/<link[^>]*href="([^"]+)"/i) || [])[1] || '';
+    const description = decode(tag(item, 'description') || tag(item, 'summary') || tag(item, 'content'));
+    return {
+      external_id: decode(tag(item, 'guid') || tag(item, 'id')) || link,
+      title: decode(tag(item, 'title')),
+      description,
+      budget_min: null,
+      ...parseMoney(description),
+      url: link,
+      skills: [],
+      client_name: decode(tag(item, 'author') || tag(item, 'dc:creator')) || null,
+      posted_at: decode(tag(item, 'pubDate') || tag(item, 'published') || tag(item, 'updated')) || null,
+    };
+  }).filter((l) => l.title && l.external_id);
+}
+
+const isFeed = (text) => /^\s*(<\?xml[^>]*>\s*)?<(rss|feed|rdf:RDF)[\s>]/i.test(text);
+
+function patternMatcher(pattern) {
+  if (!pattern) return () => true;
+  const re = pattern.match(/^\/(.+)\/([a-z]*)$/);
+  if (re) {
+    const rx = new RegExp(re[1], re[2]);
+    return (href) => rx.test(href);
+  }
+  return (href) => href.includes(pattern);
+}
+
+/**
+ * Links that look like listings on a public page. Without a pattern, keeps links on
+ * the same site whose text is long enough to be a title (menus are short).
+ */
+export function parsePage(html, pageUrl, pattern) {
+  const base = new URL(pageUrl);
+  const match = patternMatcher(pattern);
+  const seen = new Set();
+  const out = [];
+  for (const m of html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    let url;
+    try { url = new URL(m[1].replace(/&amp;/g, '&'), base); } catch { continue; }
+    if (!['http:', 'https:'].includes(url.protocol)) continue;
+    if (url.hostname.replace(/^www\./, '') !== base.hostname.replace(/^www\./, '')) continue;
+    const title = decode(m[2]);
+    if (title.length < 12 || title.length > 200) continue;
+    if (!match(url.href)) continue;
+    url.hash = '';
+    if (seen.has(url.href) || url.href === base.href) continue;
+    seen.add(url.href);
+    out.push({ external_id: url.href, title, description: '', budget_min: null, budget_max: null, currency: null, url: url.href, skills: [], client_name: null, posted_at: null });
+  }
+  return out;
+}
+
+async function fetchText(url) {
+  await assertPublicUrl(url);
+  const res = await httpFetch(url, {
+    redirect: 'follow', signal: AbortSignal.timeout(20000),
+    headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'tr,en;q=0.8' },
+  });
+  if (!res.ok) throw new Error(`Sayfa açılamadı (${res.status})`);
+  return { text: await res.text(), url: res.url || url };
+}
+
+export async function fetchFreelancer(scope, limit) {
+  const keywords = (scope.keywords || []).filter(Boolean).slice(0, 5);
+  const out = new Map();
+  for (const query of keywords.length ? keywords : ['']) {
+    const url = new URL('https://www.freelancer.com/api/projects/0.1/projects/active/');
+    if (query) url.searchParams.set('query', query);
+    url.searchParams.set('limit', String(Math.min(limit, 50)));
+    url.searchParams.set('full_description', 'true');
+    url.searchParams.set('job_details', 'true');
+    const res = await httpFetch(url.href, { headers: { Accept: 'application/json', 'User-Agent': USER_AGENT } });
+    if (!res.ok) throw new Error(`Freelancer.com ${res.status}`);
+    const data = await res.json();
+    for (const p of data.result?.projects || []) {
+      out.set(String(p.id), {
+        external_id: String(p.id),
+        title: p.title,
+        description: p.description || p.preview_description || '',
+        budget_min: p.budget?.minimum ?? null,
+        budget_max: p.budget?.maximum ?? null,
+        currency: p.currency?.code || null,
+        url: `https://www.freelancer.com/projects/${p.seo_url}`,
+        skills: (p.jobs || []).map((j) => j.name),
+        client_name: null,
+        posted_at: p.time_submitted ? new Date(p.time_submitted * 1000).toISOString() : null,
+      });
+    }
+  }
+  return [...out.values()];
+}
+
+/** Read one source. Pages that advertise an RSS feed are read through the feed. */
+export async function fetchSource(source, scope) {
+  const limit = scope.max_leads_per_scan || 30;
+  if (source.kind === 'freelancer_api') return (await fetchFreelancer(scope, limit)).slice(0, limit);
+  const { text, url } = await fetchText(source.url);
+  if (isFeed(text)) return parseFeed(text).slice(0, limit);
+  if (source.kind === 'rss') throw new Error('Bu adres bir RSS/Atom beslemesi değil');
+  const feedHref = !source.link_pattern && text.match(/<link[^>]+type=["']application\/(?:rss|atom)\+xml["'][^>]*href=["']([^"']+)["']/i)?.[1];
+  if (feedHref) {
+    const feed = await fetchText(new URL(feedHref.replace(/&amp;/g, '&'), url).href);
+    if (isFeed(feed.text)) return parseFeed(feed.text).slice(0, limit);
+  }
+  const leads = parsePage(text, url, source.link_pattern);
+  if (!leads.length && /<div id=["'](app|root|__next)["']\s*>\s*<\/div>/i.test(text)) {
+    throw new Error('Sayfa içeriği tarayıcıda oluşturuluyor, otomatik okunamıyor. Bu sitedeki ilanları "Kalfa\'ya ekle" yer imiyle kaydedin.');
+  }
+  return leads.slice(0, limit);
+}
+
+// --- Storing leads ----------------------------------------------------------------------------
+
+function storeLead(platform, raw, scope, sourceId = null) {
+  if (get('SELECT id FROM leads WHERE platform = ? AND external_id = ?', platform, raw.external_id)) return null;
+  const contact = raw.contact || extractContact(`${raw.title}\n${raw.description}`);
+  const reason = raw.manual ? null : filterLead(raw, scope);
+  const id = insert('leads', {
+    platform, external_id: raw.external_id, title: raw.title.slice(0, 300), description: String(raw.description || '').slice(0, 8000),
+    budget_min: raw.budget_min, budget_max: raw.budget_max, currency: raw.currency, url: raw.url,
+    skills: (raw.skills || []).join(', '), client_name: raw.client_name, contact: JSON.stringify(contact),
+    status: reason ? 'filtered_out' : 'new', filter_reason: reason, score: scoreLead({ ...raw, contact }, scope),
+    posted_at: raw.posted_at ? String(raw.posted_at) : null, source_id: sourceId,
+  });
+  return { id, matched: !reason };
+}
+
+let scanning = false;
+export const isScanning = () => scanning;
+
+/** Scan every enabled source (or only `onlyId`). */
+export async function scanSources({ onlyId = null } = {}) {
+  if (scanning) return { skipped: true };
+  scanning = true;
+  const scope = getSection('scanner');
+  const summary = { sources: 0, fetched: 0, added: 0, matched: 0, filtered: 0, errors: [] };
+  const fresh = [];
+  try {
+    const sources = onlyId ? all('SELECT * FROM sources WHERE id = ?', onlyId) : all('SELECT * FROM sources WHERE enabled = 1 ORDER BY id');
+    for (const src of sources) {
+      summary.sources++;
+      const stats = { added: 0, matched: 0 };
+      try {
+        const leads = await fetchSource(src, scope);
+        summary.fetched += leads.length;
+        const platform = src.kind === 'freelancer_api' ? 'freelancer' : src.platform;
+        for (const raw of leads) {
+          const r = storeLead(platform, raw, scope, src.id);
+          if (!r) continue;
+          stats.added++;
+          if (r.matched) { stats.matched++; fresh.push(`• ${raw.title}\n  ${raw.url || ''}`); }
+        }
+        update('sources', src.id, { last_run_at: new Date().toISOString(), last_status: 'ok', last_count: leads.length,
+          last_message: `${leads.length} ilan okundu, ${stats.added} yeni, ${stats.matched} uygun` });
+      } catch (err) {
+        summary.errors.push(`${src.name}: ${err.message}`);
+        update('sources', src.id, { last_run_at: new Date().toISOString(), last_status: 'error', last_message: err.message });
+      }
+      summary.added += stats.added;
+      summary.matched += stats.matched;
+    }
+    summary.filtered = summary.added - summary.matched;
+    if (fresh.length && scope.notify_new) {
+      await notifyAdmin('new_leads', `${fresh.length} yeni uygun iş ilanı`, fresh.slice(0, 30).join('\n'), '/leads');
+    }
+  } finally {
+    scanning = false;
+  }
+  return summary;
+}
+
+/** Listing saved with the bookmarklet or the "İlan ekle" form. */
+export function addManualLead({ url, title, description = '', client_name = null, budget = null, currency = null, email = null, phone = null, platform = null }) {
+  title = String(title || '').trim();
+  if (!title) throw new Error('Başlık boş olamaz');
+  const cleanUrl = url && /^https?:\/\//i.test(url) ? String(url).slice(0, 1000) : null;
+  const plat = platform && PLATFORMS[platform] ? platform : cleanUrl ? detectPlatform(cleanUrl) : 'manual';
+  const found = extractContact(`${title}\n${description}`);
+  const raw = {
+    external_id: cleanUrl || `manual-${Date.now()}`, title, description, url: cleanUrl, client_name: client_name || null,
+    budget_min: null, budget_max: budget ? Number(budget) || null : null, currency: currency || (budget ? getSection('business').base_currency : null),
+    skills: [], posted_at: new Date().toISOString(), manual: true,
+    contact: { email: email || found.email, phone: phone ? String(phone).replace(/[^\d]/g, '') : found.phone },
+  };
+  const existing = get('SELECT id FROM leads WHERE platform = ? AND external_id = ?', plat, raw.external_id);
+  if (existing) return { id: existing.id, duplicate: true };
+  return { id: storeLead(plat, raw, getSection('scanner')).id, duplicate: false };
+}
+
+// --- Contacting ---------------------------------------------------------------------------------
+
+export const leadMessage = (lead) => render(template('lead_message'), { ad: lead.client_name || '', ilan: lead.title });
+export const leadSubject = (lead) => render(template('lead_subject'), { ad: lead.client_name || '', ilan: lead.title });
+
+/**
+ * channel: email (sent by Kalfa) | whatsapp_link (you send it from WhatsApp) | platform (you sent an offer on the site) | phone
+ */
+export async function contactLead(id, { channel, message } = {}) {
+  const lead = get('SELECT * FROM leads WHERE id = ?', id);
+  if (!lead) throw Object.assign(new Error('İlan bulunamadı'), { status: 404 });
+  const contact = JSON.parse(lead.contact || '{}');
+  const text = String(message ?? leadMessage(lead)).trim();
+  if (!text && channel !== 'phone') throw new Error('Mesaj boş');
+  let conv = null;
+  const who = lead.client_name || `${PLATFORMS[lead.platform]?.label || 'İlan'} ilan sahibi`;
+  if (channel === 'email') {
+    if (!contact.email) throw new Error('Bu ilanda e-posta adresi yok');
+    if (!config.smtp.host) throw new Error('E-posta göndermek için .env dosyasında SMTP ayarlarını yapın');
+    const subject = leadSubject(lead);
+    await sendMail({ to: contact.email, subject, text });
+    conv = findOrCreateConversation({ channel: 'email', externalId: contact.email.toLowerCase(), name: who, email: contact.email, platform: lead.platform });
+    addMessage(conv.id, 'admin', text, { outreach: true, lead_id: lead.id, subject });
+  } else if (channel === 'whatsapp_link') {
+    if (!contact.phone) throw new Error('Bu ilanda telefon yok');
+    conv = findOrCreateConversation({ channel: 'whatsapp', externalId: contact.phone, name: who, phone: contact.phone, email: contact.email, platform: lead.platform });
+    addMessage(conv.id, 'admin', text, { outreach: true, lead_id: lead.id });
+  } else if (!['platform', 'phone'].includes(channel)) {
+    throw new Error('Geçersiz kanal');
+  }
+  update('leads', id, { status: 'contacted', contacted_at: new Date().toISOString(), conversation_id: conv?.id ?? lead.conversation_id, customer_id: conv?.customer_id ?? lead.customer_id });
+  return get('SELECT * FROM leads WHERE id = ?', id);
+}
+
+export function whatsappLeadLink(lead, text = leadMessage(lead)) {
+  const phone = JSON.parse(lead.contact || '{}').phone;
+  return phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : null;
+}
+
+export function seedSources() {
+  if (!get('SELECT id FROM sources LIMIT 1')) {
+    insert('sources', { kind: 'freelancer_api', platform: 'freelancer', name: 'Freelancer.com', enabled: 1 });
+  }
+}

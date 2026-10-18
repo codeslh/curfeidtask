@@ -10,14 +10,11 @@ const root = document.getElementById('app');
 export const NAV = [
   ['dashboard', 'Genel bakış', 'layout-dashboard', 'Çalışma alanı'],
   ['notifications', 'Bildirimler', 'bell', 'Çalışma alanı'],
-  ['conversations', 'Konuşmalar', 'message-circle', 'Satış'],
-  ['leads', 'İş ilanları', 'target', 'Satış'],
-  ['prospects', 'Bölge taraması', 'radar', 'Satış'],
-  ['customers', 'Müşteriler', 'users', 'Satış'],
-  ['projects', 'Projeler', 'folder-kanban', 'Üretim'],
-  ['catalog', 'Katalog', 'package', 'Üretim'],
-  ['payments', 'Ödemeler', 'wallet', 'Finans'],
-  ['expenses', 'Giderler', 'receipt', 'Finans'],
+  ['leads', 'İş ilanları', 'target', 'Müşteri bulma'],
+  ['prospects', 'Bölge taraması', 'radar', 'Müşteri bulma'],
+  ['sources', 'Kaynaklar', 'globe', 'Müşteri bulma'],
+  ['conversations', 'Konuşmalar', 'message-circle', 'Takip'],
+  ['customers', 'Kişiler', 'users', 'Takip'],
   ['jobs', 'Otomasyonlar', 'clock', 'Yönetim', ['admin']],
   ['users', 'Ekip', 'user-cog', 'Yönetim', ['admin']],
   ['audit', 'Denetim kaydı', 'scroll-text', 'Yönetim', ['admin']],
@@ -50,14 +47,14 @@ function authLayout(inner) {
       <div class="auth-brand">${logo()}<span class="wordmark">${BRAND.name.toLocaleLowerCase('tr')}</span></div>
       <div class="auth-copy">
         <span class="auth-tag">${BRAND.tagline}</span>
-        <h2>Satış temsilcin, geliştiricin ve muhasebecin — tek bir yapay zekada.</h2>
+        <h2>İş ilanlarını ve web sitesine ihtiyacı olan işletmeleri senin yerine bulur.</h2>
         <div class="auth-cards">
-          <div class="glass-card"><span class="tile-icon accent">${icon('message-circle')}</span><div><b>Ayşe Y.</b><p>"Landing page için fiyat alabilir miyim?"</p></div></div>
-          <div class="glass-card right"><span class="tile-icon accent">${icon('sparkles')}</span><div><b>Yapay zeka</b><p>Landing Page 4.000 ₺. Demo hazırlayayım mı?</p></div></div>
-          <div class="glass-card"><span class="tile-icon good">${icon('banknote')}</span><div><b>Ödeme alındı</b><p>FTR-2026-00042 · 4.000 ₺</p></div></div>
+          <div class="glass-card"><span class="tile-icon accent">${icon('target')}</span><div><b>R10.net · yeni ilan</b><p>"Kuaför salonu için web sitesi yaptırılacak"</p></div></div>
+          <div class="glass-card right"><span class="tile-icon accent">${icon('radar')}</span><div><b>Makas Kuaför · 70 puan</b><p>Web sitesi yok · telefon var</p></div></div>
+          <div class="glass-card"><span class="tile-icon good">${icon('mail-check')}</span><div><b>Cevap geldi</b><p>"Merhaba, fiyat bilgisi alabilir miyim?"</p></div></div>
         </div>
       </div>
-      <div class="auth-foot">${icon('shield-check', 'sm')} İki adımlı doğrulama · Denetim kaydı · Uçtan uca otomasyon</div>
+      <div class="auth-foot">${icon('shield-check', 'sm')} Kendi bilgisayarınızda çalışır · İki adımlı doğrulama · Denetim kaydı</div>
     </section>
     <section class="auth-main"><div class="auth-panel">${inner}</div></section>
   </div>`;
@@ -150,7 +147,7 @@ function renderSetup() {
 // ---------------------------------------------------------------------------
 
 function renderShell(active) {
-  const badge = (k) => (k === 'notifications' ? app.counts.unread : k === 'conversations' ? app.counts.esc : k === 'projects' ? app.counts.review : 0);
+  const badge = (k) => (k === 'notifications' ? app.counts.unread : k === 'conversations' ? app.counts.waiting : k === 'leads' ? app.counts.leads : 0);
   const groups = [];
   for (const item of visibleNav()) {
     const g = groups.find((x) => x.name === item[3]) || groups[groups.push({ name: item[3], items: [] }) - 1];
@@ -162,7 +159,7 @@ function renderShell(active) {
   root.innerHTML = `<div class="shell">
     <aside class="sidebar" id="sidebar" aria-label="Ana menü">
       <div class="sb-top">
-        <a href="#/dashboard" class="sb-brand" aria-label="${BRAND.name}">${logo()}<span class="sb-text"><b class="wordmark">${BRAND.name.toLocaleLowerCase('tr')}</b><small>Yapay zeka kalfanız</small></span></a>
+        <a href="#/dashboard" class="sb-brand" aria-label="${BRAND.name}">${logo()}<span class="sb-text"><b class="wordmark">${BRAND.name.toLocaleLowerCase('tr')}</b><small>${BRAND.tagline}</small></span></a>
         <button class="icon-btn sb-collapse" id="collapse" title="Menüyü daralt" aria-label="Menüyü daralt">${icon('panel-left')}</button>
       </div>
       <button class="sb-search" id="openPalette">${icon('search', 'sm')}<span class="sb-text">Ara veya komut çalıştır</span><kbd class="sb-text">⌘K</kbd></button>
@@ -239,7 +236,7 @@ export async function route() {
   const key = VIEWS[page] && allowed ? page : 'dashboard';
   try {
     const d = await GET('/dashboard');
-    app.counts = { unread: d.unread_notifications, esc: d.open_escalations, review: d.projects_waiting_review };
+    app.counts = { unread: d.unread_notifications, waiting: d.kpis.waiting_reply, leads: d.kpis.new_leads };
   } catch { /* api() handles 401 */ }
   if (seq !== routeSeq) return;
   const main = renderShell(key);
@@ -261,10 +258,10 @@ app.route = route;
 // ---------------------------------------------------------------------------
 
 const ACTIONS = [
-  { label: 'Platformları şimdi tara', icon: 'refresh-cw', hint: 'İş ilanları', run: async () => { location.hash = '#/leads'; const r = await POST('/leads/scan'); toast(`${r.fetched} ilan tarandı, ${r.contacted} ilan sahibine yazıldı`); route(); } },
-  { label: 'Yeni proje oluştur', icon: 'plus', hint: 'Projeler', run: () => { location.hash = '#/projects/new'; } },
-  { label: 'Yapay zeka analizi al', icon: 'sparkles', hint: 'Genel bakış', run: () => { sessionStorage.setItem('autoAnalyze', '1'); location.hash = '#/dashboard'; route(); } },
-  { label: 'Aylık PDF raporu indir', icon: 'download', hint: 'Rapor', run: () => { location.href = `/api/reports/monthly.pdf?month=${new Date().toISOString().slice(0, 7)}`; } },
+  { label: 'İlan sitelerini şimdi tara', icon: 'refresh-cw', hint: 'İş ilanları', run: async () => { location.hash = '#/leads'; toast('Kaynaklar taranıyor…'); const r = await POST('/leads/scan'); toast(r.skipped ? 'Tarama zaten sürüyor' : `${r.fetched} ilan okundu, ${r.matched} yeni uygun ilan`); route(); } },
+  { label: 'İlan ekle', icon: 'plus', hint: 'İş ilanları', run: () => { location.hash = '#/leads/new'; } },
+  { label: 'Kaynak ekle', icon: 'globe', hint: 'Kaynaklar', run: () => { location.hash = '#/sources/new'; } },
+  { label: 'Bölge taraması', icon: 'radar', hint: 'İşletmeler', run: () => { location.hash = '#/prospects'; } },
   { label: 'Açık temaya geç', icon: 'sun', hint: 'Görünüm', run: () => { setTheme('light'); renderTopTheme(); } },
   { label: 'Koyu temaya geç', icon: 'moon', hint: 'Görünüm', run: () => { setTheme('dark'); renderTopTheme(); } },
   { label: 'Çıkış yap', icon: 'log-out', hint: 'Hesap', run: async () => { await POST('/auth/logout'); location.hash = ''; renderLogin(); } },
@@ -273,8 +270,8 @@ const ACTIONS = [
 let paletteData = null;
 async function loadPaletteData() {
   const safe = (p) => p.catch(() => []);
-  const [customers, projects, conversations] = await Promise.all([safe(GET('/customers')), safe(GET('/projects')), safe(GET('/conversations'))]);
-  paletteData = { customers, projects, conversations, at: Date.now() };
+  const [customers, leads, conversations] = await Promise.all([safe(GET('/customers')), safe(GET('/leads').then((d) => d.leads)), safe(GET('/conversations'))]);
+  paletteData = { customers, leads, conversations, at: Date.now() };
 }
 
 export async function openPalette() {
@@ -282,7 +279,7 @@ export async function openPalette() {
   const ov = document.createElement('div');
   ov.className = 'palette-overlay';
   ov.innerHTML = `<div class="palette" role="dialog" aria-label="Komut paleti">
-    <div class="palette-input">${icon('search')}<input placeholder="Sayfa, müşteri, proje ara veya komut yaz…" aria-label="Ara" autocomplete="off"><kbd>ESC</kbd></div>
+    <div class="palette-input">${icon('search')}<input placeholder="Sayfa, ilan, kişi ara veya komut yaz…" aria-label="Ara" autocomplete="off"><kbd>ESC</kbd></div>
     <div class="palette-list" role="listbox"></div>
     <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> gezin</span><span><kbd>↵</kbd> aç</span><span><kbd>esc</kbd> kapat</span></div></div>`;
   document.body.append(ov);
@@ -298,10 +295,10 @@ export async function openPalette() {
     const match = (s) => !q || String(s).toLocaleLowerCase('tr').includes(q);
     const pages = visibleNav().filter(([, l]) => match(l)).map(([k, l, ic, g]) => ({ group: 'Sayfalar', label: l, icon: ic, hint: g, run: () => { location.hash = `#/${k}`; } }));
     const actions = ACTIONS.filter((a) => match(a.label)).map((a) => ({ ...a, group: 'Komutlar' }));
-    const data = paletteData || { customers: [], projects: [], conversations: [] };
+    const data = paletteData || { customers: [], leads: [], conversations: [] };
     const records = q ? [
-      ...data.customers.filter((c) => match(`${c.name} ${c.email || ''} ${c.phone || ''}`)).slice(0, 5).map((c) => ({ group: 'Müşteriler', label: c.name, icon: 'user', hint: c.email || c.phone || '', run: () => { location.hash = '#/customers'; } })),
-      ...data.projects.filter((p) => match(`${p.title} ${p.customer_name || ''}`)).slice(0, 5).map((p) => ({ group: 'Projeler', label: p.title, icon: 'folder-kanban', hint: LABELS[p.status] || p.status, run: () => { location.hash = `#/projects/${p.id}`; } })),
+      ...data.leads.filter((l) => match(`${l.title} ${l.platform_label}`)).slice(0, 6).map((l) => ({ group: 'İş ilanları', label: l.title, icon: 'target', hint: l.platform_label, run: () => { location.hash = `#/leads/${l.id}`; } })),
+      ...data.customers.filter((c) => match(`${c.name} ${c.email || ''} ${c.phone || ''}`)).slice(0, 5).map((c) => ({ group: 'Kişiler', label: c.name, icon: 'user', hint: c.email || c.phone || '', run: () => { location.hash = '#/customers'; } })),
       ...data.conversations.filter((c) => match(`${c.customer_name || ''} ${c.last_message || ''}`)).slice(0, 5).map((c) => ({ group: 'Konuşmalar', label: c.customer_name || `#${c.id}`, icon: 'message-circle', hint: (c.last_message || '').slice(0, 50), run: () => { location.hash = `#/conversations/${c.id}`; } })),
     ] : [];
     items = [...records, ...pages, ...actions];

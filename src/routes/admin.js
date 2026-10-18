@@ -1,26 +1,17 @@
 import express from 'express';
-import { all, get, insert, run, update } from '../db.js';
-import { notifyAdmin } from '../services/notify.js';
-import * as payments from '../services/payments.js';
-import * as projects from '../services/projects.js';
-import { aiAnalysis, invoicePdf, monthlyPdf, monthStats, productPerformance, trend } from '../services/reports.js';
-import { adminSend, releaseToAi, takeover } from '../services/sales.js';
-import { scanPlatforms } from '../services/scanner.js';
-import * as security from '../services/security.js';
-import { PLATFORMS } from '../services/platforms/index.js';
-import { getSettings, saveSection } from '../services/settings.js';
-import { monthTokenUsage } from '../services/ai.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDb } from '../db.js';
-import { dataPath } from '../config.js';
-import * as scheduler from '../services/scheduler.js';
-import * as prospecting from '../services/prospecting.js';
-import { handleInConversation } from '../services/sales.js';
-import { whatsappApiReady } from '../services/whatsapp.js';
+import { config, dataPath } from '../config.js';
+import { all, get, getDb, run, update } from '../db.js';
+import { adminSend, handleInConversation } from '../services/inbox.js';
 import { mailboxReady } from '../services/mailbox.js';
-import { netlifyReady } from '../services/deploy.js';
-import { config } from '../config.js';
+import { notifyAdmin } from '../services/notify.js';
+import * as prospecting from '../services/prospecting.js';
+import * as scheduler from '../services/scheduler.js';
+import * as security from '../services/security.js';
+import { getSettings, saveSection } from '../services/settings.js';
+import * as sources from '../services/sources.js';
+import { whatsappApiReady } from '../services/whatsapp.js';
 import { asyncRoute, auditTrail, authorize, clientInfo, requireAuth } from './util.js';
 
 export const router = express.Router();
@@ -29,38 +20,44 @@ router.use(requireAuth, authorize, auditTrail);
 const id = (req) => Number(req.params.id);
 const bad = (res, err) => res.status(err.status && err.status < 500 ? err.status : 400).json({ error: err.message });
 
-// --- Dashboard & reports ------------------------------------------------------
+// --- Dashboard ------------------------------------------------------------------
 
-router.get('/dashboard', (req, res) => {
+router.get('/dashboard', (_req, res) => {
+  const n = (sql, ...p) => get(sql, ...p).n;
+  const minScore = getSettings().prospecting.min_score;
+  // Last 14 days of matching leads (per platform) and contacts made.
+  const days = all(`WITH RECURSIVE d(day) AS (SELECT date('now', '-13 days') UNION ALL SELECT date(day, '+1 day') FROM d WHERE day < date('now'))
+    SELECT d.day,
+      (SELECT COUNT(*) FROM leads l WHERE date(l.created_at) = d.day AND l.status != 'filtered_out') AS leads,
+      (SELECT COUNT(*) FROM prospects p WHERE date(p.created_at) = d.day) AS prospects,
+      (SELECT COUNT(*) FROM leads l WHERE date(l.contacted_at) = d.day) + (SELECT COUNT(*) FROM prospects p WHERE date(p.contacted_at) = d.day) AS contacted
+    FROM d ORDER BY d.day`);
   res.json({
-    stats: monthStats(req.query.month),
-    trend: trend(12),
-    products: productPerformance(),
-    ai_tokens_this_month: monthTokenUsage(),
-    open_escalations: get(`SELECT COUNT(*) AS n FROM conversations WHERE status = 'escalated'`).n,
-    projects_waiting_review: get(`SELECT COUNT(*) AS n FROM projects WHERE status IN ('review','changes_requested','build_failed')`).n,
-    unread_notifications: get('SELECT COUNT(*) AS n FROM notifications WHERE read = 0').n,
+    kpis: {
+      new_leads: n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'new'`),
+      leads_today: n(`SELECT COUNT(*) AS n FROM leads WHERE status != 'filtered_out' AND date(created_at) = date('now')`),
+      hot_prospects: n(`SELECT COUNT(*) AS n FROM prospects WHERE status = 'analyzed' AND score >= ?`, minScore),
+      contacted_week: n(`SELECT COUNT(*) AS n FROM leads WHERE contacted_at >= ?`, new Date(Date.now() - 7 * 864e5).toISOString())
+        + n(`SELECT COUNT(*) AS n FROM prospects WHERE contacted_at >= ?`, new Date(Date.now() - 7 * 864e5).toISOString()),
+      waiting_reply: n(`SELECT COUNT(*) AS n FROM conversations c WHERE c.status = 'open'
+        AND (SELECT sender FROM messages m WHERE m.conversation_id = c.id AND m.sender != 'system' ORDER BY id DESC LIMIT 1) = 'customer'`),
+      won: n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'won'`) + n(`SELECT COUNT(*) AS n FROM prospects WHERE status = 'converted'`),
+    },
+    funnel: {
+      found: n(`SELECT COUNT(*) AS n FROM leads WHERE status != 'filtered_out'`) + n('SELECT COUNT(*) AS n FROM prospects'),
+      contacted: n(`SELECT COUNT(*) AS n FROM leads WHERE status IN ('contacted','replied','won','lost')`) + n(`SELECT COUNT(*) AS n FROM prospects WHERE status IN ('contacted','replied','converted')`),
+      replied: n(`SELECT COUNT(*) AS n FROM leads WHERE status IN ('replied','won')`) + n(`SELECT COUNT(*) AS n FROM prospects WHERE status IN ('replied','converted')`),
+      won: n(`SELECT COUNT(*) AS n FROM leads WHERE status = 'won'`) + n(`SELECT COUNT(*) AS n FROM prospects WHERE status = 'converted'`),
+    },
+    days,
+    by_platform: all(`SELECT platform, COUNT(*) AS n FROM leads WHERE status != 'filtered_out' AND created_at >= datetime('now', '-30 days') GROUP BY platform ORDER BY n DESC`),
+    top_leads: all(`SELECT id, title, platform, score, budget_max, currency, created_at FROM leads WHERE status = 'new' ORDER BY score DESC, id DESC LIMIT 6`),
+    top_prospects: all(`SELECT id, name, category, score FROM prospects WHERE status = 'analyzed' ORDER BY score DESC LIMIT 6`)
+      .map((p) => ({ ...p, category_label: prospecting.CATEGORIES[p.category]?.label || p.category })),
+    sources: all('SELECT id, name, platform, kind, enabled, last_run_at, last_status, last_message FROM sources ORDER BY id'),
+    unread_notifications: n('SELECT COUNT(*) AS n FROM notifications WHERE read = 0'),
   });
 });
-
-router.post('/dashboard/analysis', asyncRoute(async (req, res) => {
-  try {
-    res.json({ analysis: await aiAnalysis(req.body?.month) });
-  } catch (err) {
-    bad(res, err);
-  }
-}));
-
-router.get('/reports/monthly.pdf', asyncRoute(async (req, res) => {
-  const month = req.query.month || new Date().toISOString().slice(0, 7);
-  let analysis = '';
-  if (req.query.analysis === '1') {
-    try { analysis = await aiAnalysis(month); } catch (err) { analysis = `Analiz alınamadı: ${err.message}`; }
-  }
-  res.set('Content-Type', 'application/pdf');
-  res.set('Content-Disposition', `attachment; filename="ozet-${month}.pdf"`);
-  monthlyPdf(month, res, analysis);
-}));
 
 // --- Notifications --------------------------------------------------------------
 
@@ -74,9 +71,9 @@ router.get('/conversations', (req, res) => {
   const where = [];
   const params = [];
   if (req.query.status) { where.push('c.status = ?'); params.push(req.query.status); }
-  if (req.query.mode) { where.push('c.mode = ?'); params.push(req.query.mode); }
   res.json(all(`SELECT c.*, cu.name AS customer_name, cu.phone, cu.email,
-                  (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY id DESC LIMIT 1) AS last_message
+                  (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY id DESC LIMIT 1) AS last_message,
+                  (SELECT sender FROM messages m WHERE m.conversation_id = c.id AND m.sender != 'system' ORDER BY id DESC LIMIT 1) AS last_sender
                 FROM conversations c LEFT JOIN customers cu ON cu.id = c.customer_id
                 ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
                 ORDER BY c.last_message_at DESC LIMIT 300`, ...params));
@@ -86,18 +83,18 @@ router.get('/conversations/:id', (req, res) => {
   const conv = get('SELECT * FROM conversations WHERE id = ?', id(req));
   if (!conv) return res.sendStatus(404);
   res.json({
-    // No WhatsApp Cloud API (e.g. running on a laptop): the admin relays messages via wa.me links.
+    // No WhatsApp Cloud API (e.g. running on a laptop): you send from your own WhatsApp via wa.me links.
     relay: conv.channel === 'whatsapp' && !whatsappApiReady(),
+    smtp: Boolean(config.smtp.host),
     conversation: conv,
     customer: get('SELECT * FROM customers WHERE id = ?', conv.customer_id),
-    project: conv.project_id ? projects.getProject(conv.project_id) : null,
+    lead: get('SELECT id, title, platform, url, status FROM leads WHERE conversation_id = ? ORDER BY id DESC LIMIT 1', conv.id) || null,
+    prospect: get('SELECT id, name, status FROM prospects WHERE conversation_id = ? ORDER BY id DESC LIMIT 1', conv.id) || null,
     messages: all('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id', conv.id),
   });
 });
 
-router.post('/conversations/:id/takeover', asyncRoute(async (req, res) => { await takeover(id(req)); res.json({ ok: true }); }));
-router.post('/conversations/:id/release', asyncRoute(async (req, res) => { await releaseToAi(id(req)); res.json({ ok: true }); }));
-// Hand-relayed inbound message (customer wrote on WhatsApp / phone; admin pastes it here).
+// A reply that came in elsewhere (WhatsApp on your phone, a call...) pasted into the panel.
 router.post('/conversations/:id/inbound', asyncRoute(async (req, res) => {
   const conv = get('SELECT * FROM conversations WHERE id = ?', id(req));
   if (!conv) return res.sendStatus(404);
@@ -106,10 +103,11 @@ router.post('/conversations/:id/inbound', asyncRoute(async (req, res) => {
   try { res.json(await handleInConversation(conv, text)); } catch (err) { bad(res, err); }
 }));
 router.post('/conversations/:id/close', (req, res) => { update('conversations', id(req), { status: 'closed' }); res.json({ ok: true }); });
+router.post('/conversations/:id/reopen', (req, res) => { update('conversations', id(req), { status: 'open' }); res.json({ ok: true }); });
 router.post('/conversations/:id/messages', asyncRoute(async (req, res) => {
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'Mesaj boş olamaz' });
-  try { await adminSend(id(req), text); res.json({ ok: true }); } catch (err) { bad(res, err); }
+  try { res.json({ ok: true, ...(await adminSend(id(req), text)) }); } catch (err) { bad(res, err); }
 }));
 
 // --- Local business prospecting ---------------------------------------------------------
@@ -171,17 +169,19 @@ router.post('/prospects/:id/block', (req, res) => {
   res.json({ ok: true });
 });
 
-// System readiness for the "works on a laptop" checklist on the dashboard/settings.
+// What is configured in .env (shown under Ayarlar → İşletme).
 router.get('/system/status', (_req, res) => res.json({
-  ai: !config.aiMock, smtp: Boolean(config.smtp.host), imap: mailboxReady(), whatsapp_api: whatsappApiReady(),
-  stripe: Boolean(config.stripe.secretKey), netlify: netlifyReady(), google_places: Boolean(config.googlePlacesKey), public_url: config.publicUrl,
+  smtp: Boolean(config.smtp.host), imap: mailboxReady(), whatsapp_api: whatsappApiReady(),
+  google_places: Boolean(config.googlePlacesKey), public_url: config.publicUrl,
 }));
 
-// --- Customers ----------------------------------------------------------------------
+// --- Customers (people who answered) ---------------------------------------------------------
 
 router.get('/customers', (_req, res) => res.json(all(`
-  SELECT cu.*, (SELECT COUNT(*) FROM projects p WHERE p.customer_id = cu.id) AS project_count,
-    (SELECT COALESCE(SUM(amount - refunded_amount), 0) FROM payments pay WHERE pay.customer_id = cu.id AND pay.status IN ('paid','partially_refunded')) AS total_paid
+  SELECT cu.*,
+    (SELECT COUNT(*) FROM conversations c WHERE c.customer_id = cu.id) AS conversation_count,
+    (SELECT MAX(c.last_message_at) FROM conversations c WHERE c.customer_id = cu.id) AS last_message_at,
+    (SELECT c.id FROM conversations c WHERE c.customer_id = cu.id ORDER BY c.last_message_at DESC LIMIT 1) AS conversation_id
   FROM customers cu ORDER BY cu.id DESC`)));
 router.put('/customers/:id', (req, res) => {
   const { name, email, phone, notes } = req.body || {};
@@ -189,162 +189,86 @@ router.put('/customers/:id', (req, res) => {
   res.json(get('SELECT * FROM customers WHERE id = ?', id(req)));
 });
 
-// --- Catalog CRUD (products, themes, languages) -------------------------------------
+// --- Listing sources -----------------------------------------------------------------------
 
-function crud(table, fields) {
-  const pick = (body) => Object.fromEntries(fields.filter((f) => body?.[f] !== undefined).map((f) => [f, body[f]]));
-  router.get(`/${table}`, (_req, res) => res.json(all(`SELECT * FROM ${table} ORDER BY id DESC`)));
-  router.post(`/${table}`, (req, res) => {
-    if (!req.body?.name) return res.status(400).json({ error: 'İsim zorunlu' });
-    res.json(get(`SELECT * FROM ${table} WHERE id = ?`, insert(table, pick(req.body))));
-  });
-  router.put(`/${table}/:id`, (req, res) => {
-    update(table, id(req), pick(req.body));
-    res.json(get(`SELECT * FROM ${table} WHERE id = ?`, id(req)));
-  });
-  router.delete(`/${table}/:id`, (req, res) => {
-    // Soft delete keeps historical projects/conversations consistent.
-    update(table, id(req), { active: 0 });
-    res.json({ ok: true });
-  });
-}
-crud('products', ['name', 'description', 'category', 'price', 'currency', 'features', 'demo_url', 'image_url', 'active']);
-crud('themes', ['name', 'description', 'preview_url', 'style_guide', 'active']);
-crud('languages', ['name', 'description', 'active']);
+router.get('/sources', (_req, res) => res.json({
+  platforms: sources.PLATFORMS,
+  sources: all('SELECT * FROM sources ORDER BY id'),
+  scanning: sources.isScanning(),
+}));
+router.post('/sources', (req, res) => {
+  const b = req.body || {};
+  const kind = ['rss', 'page'].includes(b.kind) ? b.kind : null;
+  if (!kind) return res.status(400).json({ error: 'Kaynak türü rss veya page olmalı' });
+  let url;
+  try { url = new URL(String(b.url || '').trim()); } catch { return res.status(400).json({ error: 'Geçerli bir adres girin (https://...)' }); }
+  if (!['http:', 'https:'].includes(url.protocol)) return res.status(400).json({ error: 'Adres http(s) ile başlamalı' });
+  const platform = sources.PLATFORMS[b.platform] ? b.platform : sources.detectPlatform(url.href);
+  const newId = Number(run(`INSERT INTO sources (kind, platform, name, url, link_pattern, enabled) VALUES (?, ?, ?, ?, ?, 1)`,
+    kind, platform, String(b.name || '').trim() || `${sources.PLATFORMS[platform].label} — ${url.hostname}`, url.href, String(b.link_pattern || '').trim() || null).lastInsertRowid);
+  res.json(get('SELECT * FROM sources WHERE id = ?', newId));
+});
+router.put('/sources/:id', (req, res) => {
+  const b = req.body || {};
+  const patch = {};
+  if (b.enabled !== undefined) patch.enabled = b.enabled ? 1 : 0;
+  if (b.name !== undefined) patch.name = String(b.name).trim();
+  if (b.link_pattern !== undefined) patch.link_pattern = String(b.link_pattern).trim() || null;
+  update('sources', id(req), patch);
+  res.json(get('SELECT * FROM sources WHERE id = ?', id(req)));
+});
+router.delete('/sources/:id', (req, res) => { run('DELETE FROM sources WHERE id = ?', id(req)); res.json({ ok: true }); });
+router.post('/sources/:id/test', asyncRoute(async (req, res) => {
+  const src = get('SELECT * FROM sources WHERE id = ?', id(req));
+  if (!src) return res.sendStatus(404);
+  try {
+    const leads = await sources.fetchSource(src, getSettings().scanner);
+    res.json({ count: leads.length, sample: leads.slice(0, 8).map((l) => ({ title: l.title, url: l.url })) });
+  } catch (err) { bad(res, err); }
+}));
+router.post('/sources/:id/scan', asyncRoute(async (req, res) => res.json(await sources.scanSources({ onlyId: id(req) }))));
 
-// --- Leads / platform scanning ---------------------------------------------------------
+// --- Leads -------------------------------------------------------------------------------------
 
-router.get('/platforms', (_req, res) => res.json(Object.values(PLATFORMS).map((p) => ({ name: p.name, label: p.label }))));
+const LEAD_STATUSES = ['new', 'filtered_out', 'contacted', 'replied', 'won', 'lost', 'ignored'];
+const leadRow = (l) => {
+  const contact = JSON.parse(l.contact || '{}');
+  const message = sources.leadMessage(l);
+  return { ...l, contact, platform_label: sources.PLATFORMS[l.platform]?.label || l.platform, message, whatsapp_link: sources.whatsappLeadLink(l, message) };
+};
 router.get('/leads', (req, res) => {
-  const status = req.query.status;
-  res.json(all(`SELECT * FROM leads ${status ? 'WHERE status = ?' : ''} ORDER BY id DESC LIMIT 300`, ...(status ? [status] : [])));
+  const status = LEAD_STATUSES.includes(req.query.status) ? req.query.status : null;
+  res.json({
+    leads: all(`SELECT * FROM leads ${status ? 'WHERE status = ?' : `WHERE status != 'filtered_out'`} ORDER BY CASE status WHEN 'new' THEN 0 ELSE 1 END, created_at DESC, score DESC LIMIT 500`, ...(status ? [status] : [])).map(leadRow),
+    counts: Object.fromEntries(all('SELECT status, COUNT(*) AS n FROM leads GROUP BY status').map((r) => [r.status, r.n])),
+    smtp: Boolean(config.smtp.host),
+    scanning: sources.isScanning(),
+    platforms: sources.PLATFORMS,
+  });
 });
-router.post('/leads/scan', asyncRoute(async (_req, res) => res.json(await scanPlatforms())));
-router.put('/leads/:id', (req, res) => {
-  const { status } = req.body || {};
-  if (!['new', 'filtered_out', 'contacted', 'needs_admin', 'won', 'lost'].includes(status)) return res.status(400).json({ error: 'Geçersiz durum' });
-  update('leads', id(req), { status });
-  res.json({ ok: true });
-});
-router.post('/leads/:id/project', asyncRoute(async (req, res) => {
+router.get('/leads/:id', (req, res) => {
   const lead = get('SELECT * FROM leads WHERE id = ?', id(req));
   if (!lead) return res.sendStatus(404);
-  const customerId = lead.customer_id ?? insert('customers', { name: lead.client_name || `${lead.platform} müşterisi`, platform: lead.platform });
-  const projectId = await projects.createProject({
-    customerId, conversationId: lead.conversation_id, leadId: lead.id,
-    title: req.body?.title || lead.title,
-    requirements: req.body?.requirements || lead.description,
-    themeId: req.body?.theme_id || null, languageId: req.body?.language_id || null,
-    price: Number(req.body?.price || lead.budget_max || 0), currency: req.body?.currency || lead.currency,
-  });
-  res.json({ id: projectId });
+  res.json(leadRow(lead));
+});
+router.post('/leads/scan', asyncRoute(async (_req, res) => res.json(await sources.scanSources())));
+router.post('/leads', (req, res) => {
+  try { res.json(sources.addManualLead(req.body || {})); } catch (err) { bad(res, err); }
+});
+router.put('/leads/:id', (req, res) => {
+  const { status, notes } = req.body || {};
+  const patch = {};
+  if (status !== undefined) {
+    if (!LEAD_STATUSES.includes(status)) return res.status(400).json({ error: 'Geçersiz durum' });
+    patch.status = status;
+  }
+  if (notes !== undefined) patch.notes = String(notes);
+  update('leads', id(req), patch);
+  res.json(leadRow(get('SELECT * FROM leads WHERE id = ?', id(req))));
+});
+router.post('/leads/:id/contact', asyncRoute(async (req, res) => {
+  try { res.json(leadRow(await sources.contactLead(id(req), { channel: req.body?.channel, message: req.body?.message }))); } catch (err) { bad(res, err); }
 }));
-
-// --- Projects ----------------------------------------------------------------------------
-
-router.get('/projects', (_req, res) => res.json(projects.listProjects()));
-router.post('/projects', asyncRoute(async (req, res) => {
-  const b = req.body || {};
-  if (!b.title || !b.customer_id) return res.status(400).json({ error: 'Başlık ve müşteri zorunlu' });
-  res.json({ id: await projects.createProject({
-    customerId: Number(b.customer_id), conversationId: b.conversation_id || null, title: b.title, requirements: b.requirements || '',
-    themeId: b.theme_id || null, languageId: b.language_id || null, price: Number(b.price || 0), currency: b.currency,
-  }) });
-}));
-router.get('/projects/:id', (req, res) => {
-  const project = projects.getProject(id(req));
-  if (!project) return res.sendStatus(404);
-  res.json({
-    project,
-    status_label: projects.STATUS_LABELS[project.status],
-    building: projects.isBuilding(project.id),
-    versions: all('SELECT * FROM project_versions WHERE project_id = ? ORDER BY version DESC', project.id)
-      .map((v) => ({ ...v, preview_url: projects.previewUrl(project.id, v.version) })),
-    events: all('SELECT * FROM project_events WHERE project_id = ? ORDER BY id DESC', project.id),
-    files: project.current_version ? projects.readVersionFiles(project.id, project.current_version).map((f) => ({ path: f.path, size: f.content.length })) : [],
-    payments: all('SELECT * FROM payments WHERE project_id = ? ORDER BY id DESC', project.id),
-  });
-});
-router.put('/projects/:id', (req, res) => {
-  const b = req.body || {};
-  const patch = Object.fromEntries(['title', 'requirements', 'theme_id', 'language_id', 'price', 'currency'].filter((k) => b[k] !== undefined).map((k) => [k, b[k]]));
-  update('projects', id(req), patch);
-  res.json(projects.getProject(id(req)));
-});
-
-const action = (fn) => asyncRoute(async (req, res) => {
-  try { res.json({ ok: true, result: await fn(req) ?? null }); } catch (err) { bad(res, err); }
-});
-router.post('/projects/:id/feedback', action((req) => {
-  const fb = String(req.body?.feedback || '').trim();
-  if (!fb) throw new Error('Düzeltme notu boş olamaz');
-  projects.submitFeedback(id(req), fb);
-}));
-router.post('/projects/:id/rebuild', action((req) => { projects.rebuild(id(req)); }));
-router.post('/projects/:id/approve', action((req) => projects.approve(id(req))));
-router.post('/projects/:id/deploy', action((req) => projects.deployDemo(id(req))));
-router.post('/projects/:id/customer-approved', action((req) => {
-  const p = projects.getProject(id(req));
-  if (p?.status !== 'demo_live') throw new Error('Proje demo aşamasında değil');
-  return projects.customerApproved(id(req));
-}));
-router.post('/projects/:id/payment-request', action((req) => payments.createPaymentRequest(id(req))));
-router.post('/projects/:id/deliver', action((req) => projects.markDelivered(id(req))));
-router.post('/projects/:id/cancel', action((req) => {
-  run(`UPDATE projects SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`, id(req));
-  projects.logEvent(id(req), 'status', 'Proje iptal edildi');
-}));
-router.get('/projects/:id/files/*file', (req, res) => {
-  const p = projects.getProject(id(req));
-  if (!p?.current_version) return res.sendStatus(404);
-  const rel = [].concat(req.params.file).join('/');
-  const file = projects.readVersionFiles(p.id, p.current_version).find((f) => f.path === rel);
-  if (!file) return res.sendStatus(404);
-  res.type('text/plain').send(file.content);
-});
-
-// --- Payments, refunds, invoices, expenses ------------------------------------------------
-
-router.get('/payments', (_req, res) => res.json(payments.listPayments()));
-router.get('/payments/:id', (req, res) => {
-  const payment = get('SELECT * FROM payments WHERE id = ?', id(req));
-  if (!payment) return res.sendStatus(404);
-  res.json({
-    payment,
-    refunds: all('SELECT * FROM refunds WHERE payment_id = ? ORDER BY id', payment.id),
-    invoices: all('SELECT * FROM invoices WHERE payment_id = ? ORDER BY id', payment.id),
-    instructions: payments.paymentInstructions(payment),
-  });
-});
-router.post('/payments/:id/mark-paid', action((req) => payments.markPaid(id(req), { note: req.body?.note || 'Manuel onay' })));
-router.post('/payments/:id/cancel', action((req) => payments.cancelPayment(id(req))));
-router.post('/payments/:id/refund', action(async (req) => {
-  const { ip, userAgent } = clientInfo(req);
-  const result = await payments.refund(id(req), req.body?.amount, req.body?.reason, req.session.user_id);
-  security.logEvent({ userId: req.session.user_id, email: req.session.email, event: 'refund', ip, userAgent, detail: `Ödeme #${id(req)}: ${req.body?.amount || 'tamamı'}` });
-  return result;
-}));
-
-router.get('/invoices', (_req, res) => res.json(all(`SELECT i.*, c.name AS customer_name, p.title AS project_title FROM invoices i
-  LEFT JOIN customers c ON c.id = i.customer_id LEFT JOIN projects p ON p.id = i.project_id ORDER BY i.id DESC`)));
-router.get('/invoices/:id/pdf', (req, res) => {
-  const inv = get('SELECT number FROM invoices WHERE id = ?', id(req));
-  if (!inv) return res.sendStatus(404);
-  res.set('Content-Type', 'application/pdf');
-  res.set('Content-Disposition', `inline; filename="${inv.number}.pdf"`);
-  invoicePdf(id(req), res);
-});
-
-router.get('/expenses', (_req, res) => res.json(all('SELECT * FROM expenses ORDER BY id DESC LIMIT 500')));
-router.post('/expenses', (req, res) => {
-  const { category = 'other', amount, currency, description = '' } = req.body || {};
-  if (!(Number(amount) > 0)) return res.status(400).json({ error: 'Tutar sıfırdan büyük olmalı' });
-  res.json({ id: insert('expenses', { category, amount: Number(amount), currency: currency || getSettings().business.base_currency, description }) });
-});
-router.delete('/expenses/:id', (req, res) => { run('DELETE FROM expenses WHERE id = ?', id(req)); res.json({ ok: true }); });
-router.get('/ai-usage', (_req, res) => res.json(all(`SELECT date(created_at) AS day, purpose, SUM(input_tokens) AS input_tokens,
-  SUM(output_tokens) AS output_tokens, ROUND(SUM(cost_usd), 4) AS cost_usd FROM ai_usage
-  WHERE created_at >= datetime('now', '-30 days') GROUP BY day, purpose ORDER BY day DESC`)));
 
 // --- Security ---------------------------------------------------------------------------------
 
@@ -420,12 +344,9 @@ router.get('/backup', asyncRoute(async (req, res) => {
 }));
 
 const EXPORTS = {
-  payments: `SELECT pay.id, pay.reference, c.name AS customer, p.title AS project, pay.method, pay.amount, pay.refunded_amount, pay.currency, pay.status, pay.created_at, pay.paid_at
-             FROM payments pay LEFT JOIN customers c ON c.id = pay.customer_id LEFT JOIN projects p ON p.id = pay.project_id ORDER BY pay.id`,
-  invoices: `SELECT i.number, i.kind, c.name AS customer, i.subtotal, i.tax_rate, i.tax_amount, i.total, i.currency, i.issued_at
-             FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id ORDER BY i.id`,
-  customers: 'SELECT id, name, email, phone, platform, created_at FROM customers ORDER BY id',
-  expenses: 'SELECT id, category, description, amount, currency, created_at FROM expenses ORDER BY id',
+  leads: `SELECT id, platform, title, status, score, budget_min, budget_max, currency, url, client_name, contact, created_at, contacted_at, notes FROM leads WHERE status != 'filtered_out' ORDER BY id`,
+  prospects: `SELECT id, name, category, address, phone, email, website, score, status, channel, created_at, contacted_at FROM prospects ORDER BY id`,
+  customers: 'SELECT id, name, email, phone, platform, notes, created_at FROM customers ORDER BY id',
 };
 
 function toCsv(rows) {
@@ -459,14 +380,11 @@ router.put('/settings/:section', asyncRoute(async (req, res) => {
   try { saved = saveSection(req.params.section, body); } catch (err) { return bad(res, err); }
   const { ip, userAgent } = clientInfo(req);
   security.logEvent({ userId: req.session.user_id, email: req.session.email, event: 'settings_changed', ip, userAgent, detail: req.params.section });
-  // Changing where money goes is the classic account-takeover move: always alert.
-  if (req.params.section === 'business' && (before.iban !== saved.iban || before.admin_email !== saved.admin_email)) {
-    await notifyAdmin('security', 'Ödeme/iletişim bilgileri değiştirildi',
-      `IBAN: ${before.iban || '-'} -> ${saved.iban || '-'}\nAdmin e-posta: ${before.admin_email} -> ${saved.admin_email}\nIP: ${ip}`, '/settings');
-    if (before.admin_email !== saved.admin_email) {
-      const { sendMail } = await import('../services/notify.js');
-      await sendMail({ to: before.admin_email, subject: 'Admin e-posta adresi değiştirildi', text: `Admin bildirim adresi ${saved.admin_email} olarak değiştirildi. IP: ${ip}` }).catch(() => {});
-    }
+  // Redirecting the admin's notifications is a classic account-takeover move: always alert.
+  if (req.params.section === 'business' && before.admin_email !== saved.admin_email) {
+    await notifyAdmin('security', 'Bildirim e-postası değiştirildi', `Admin e-posta: ${before.admin_email} -> ${saved.admin_email}\nIP: ${ip}`, '/settings');
+    const { sendMail } = await import('../services/notify.js');
+    await sendMail({ to: before.admin_email, subject: 'Admin e-posta adresi değiştirildi', text: `Admin bildirim adresi ${saved.admin_email} olarak değiştirildi. IP: ${ip}` }).catch(() => {});
   }
   res.json(saved);
 }));

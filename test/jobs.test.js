@@ -16,7 +16,7 @@ let admin;
 before(async () => {
   openDb();
   scheduler.syncJobs();
-  saveSection('business', { iban: 'TR990000000000000000000001', timezone: 'Europe/Istanbul' });
+  saveSection('business', { timezone: 'Europe/Istanbul' });
   server = createApp().listen(0);
   admin = client(`http://127.0.0.1:${server.address().port}`);
   await admin.req('POST', '/api/auth/setup', { email: 'admin@test.com', password: 'GucluSifre123' });
@@ -53,8 +53,8 @@ describe('zamanlama hesapları', () => {
 describe('panelden görev yönetimi', () => {
   test('görevler listelenir, kapatılır, zamanı değiştirilir ve elle çalıştırılır', async () => {
     const list = (await admin.req('GET', '/api/jobs')).data.jobs;
-    assert.ok(list.length >= 10);
-    assert.ok(list.find((j) => j.name === 'payment_reminders').schedule_text.includes('Her gün'));
+    assert.ok(list.length >= 8);
+    assert.ok(list.find((j) => j.name === 'daily_digest').schedule_text.includes('Her gün'));
     assert.equal((await admin.req('PUT', '/api/jobs/cleanup', { schedule: { type: 'daily', time: '99:00' } })).status, 400);
     assert.equal((await admin.req('PUT', '/api/jobs/cleanup', { schedule: { type: 'daily', time: '05:15' }, enabled: false })).status, 200);
     const job = get(`SELECT * FROM jobs WHERE name = 'cleanup'`);
@@ -67,7 +67,7 @@ describe('panelden görev yönetimi', () => {
 
   test('zamanı gelen etkin görevler çalışır, kapalılar çalışmaz', async () => {
     run(`UPDATE jobs SET next_run_at = '2000-01-01T00:00:00Z'`);
-    run(`UPDATE jobs SET enabled = 0 WHERE name IN ('platform_scan', 'monthly_report', 'backup', 'daily_digest')`);
+    run(`UPDATE jobs SET enabled = 0 WHERE name IN ('platform_scan', 'prospect_scan', 'backup', 'daily_digest')`);
     const ran = await scheduler.tick();
     assert.ok(ran.includes('security_scan'));
     assert.ok(!ran.includes('backup'));
@@ -87,74 +87,45 @@ describe('panelden görev yönetimi', () => {
 
 describe('otomasyon görevleri', () => {
   let convId;
-  let paymentId;
 
   before(() => {
     const customer = insert('customers', { name: 'Mehmet', phone: '905551234567' });
-    convId = insert('conversations', { customer_id: customer, channel: 'whatsapp', external_id: '905551234567' });
+    convId = insert('conversations', { customer_id: customer, channel: 'whatsapp', external_id: '905551234567', mode: 'human' });
+    insert('messages', { conversation_id: convId, sender: 'admin', body: 'Merhaba, ilanınızı gördüm.' });
     insert('messages', { conversation_id: convId, sender: 'customer', body: 'Fiyat nedir?' });
-    insert('messages', { conversation_id: convId, sender: 'ai', body: 'Landing page 4000 TRY.' });
-    run(`UPDATE conversations SET last_message_at = datetime('now', '-30 hours') WHERE id = ?`, convId);
+    run(`UPDATE conversations SET last_message_at = datetime('now', '-6 hours') WHERE id = ?`, convId);
   });
 
-  test('cevap vermeyen müşteriye bir kez takip mesajı gider', async () => {
-    await scheduler.runJob('customer_followups');
-    const last = get('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id DESC', convId);
-    assert.equal(last.sender, 'ai');
-    assert.match(last.body, /dönüş yapmak istedik/);
-    run(`UPDATE conversations SET last_message_at = datetime('now', '-30 hours') WHERE id = ?`, convId);
-    const r = await scheduler.runJob('customer_followups');
-    assert.match(r.message, /^0 takip/);
+  test('cevap bekleyen konuşma için hatırlatma bir kez gider', async () => {
+    await scheduler.runJob('reply_reminders');
+    assert.equal(notes('Cevabınızı bekliyor%').length, 1);
+    await scheduler.runJob('reply_reminders');
+    assert.equal(notes('Cevabınızı bekliyor%').length, 1, 'aynı konuşma için hemen tekrar uyarmamalı');
   });
 
-  test('bekleyen ödeme için hatırlatma ve vade aşımı bildirimi', async () => {
-    const project = insert('projects', { customer_id: 1, conversation_id: convId, title: 'Landing', price: 4000, status: 'awaiting_payment' });
-    paymentId = insert('payments', { project_id: project, customer_id: 1, amount: 4000, method: 'iban', reference: 'PRJ1-ABC' });
-    run(`UPDATE payments SET created_at = datetime('now', '-10 days') WHERE id = ?`, paymentId);
-    const r = await scheduler.runJob('payment_reminders');
-    assert.equal(r.message, '1 hatırlatma, 1 vadesi geçmiş ödeme bildirimi');
-    const msg = get(`SELECT body FROM messages WHERE conversation_id = ? ORDER BY id DESC`, convId);
-    assert.match(msg.body, /TR990000000000000000000001/);
-    assert.match(msg.body, /PRJ1-ABC/);
-    // Same day again: neither the reminder nor the overdue notice repeats.
-    assert.equal((await scheduler.runJob('payment_reminders')).message, '0 hatırlatma, 0 vadesi geçmiş ödeme bildirimi');
+  test('siz cevap verdikten sonra hatırlatma gitmez', async () => {
+    insert('messages', { conversation_id: convId, sender: 'admin', body: '3.000 TL' });
+    run(`UPDATE conversations SET last_message_at = datetime('now', '-6 hours'), last_reminder_at = NULL WHERE id = ?`, convId);
+    const r = await scheduler.runJob('reply_reminders');
+    assert.match(r.message, /^0 konuşma/);
   });
 
-  test('admine aktarılmış ama yanıtlanmamış konuşma için tekrar uyarı', async () => {
-    run(`UPDATE conversations SET status = 'escalated', mode = 'human', last_message_at = datetime('now', '-5 hours') WHERE id = ?`, convId);
-    await scheduler.runJob('escalation_reminders');
-    assert.equal(notes('Hâlâ cevap bekleniyor%').length, 1);
-    await scheduler.runJob('escalation_reminders');
-    assert.equal(notes('Hâlâ cevap bekleniyor%').length, 1, 'aynı konuşma için hemen tekrar uyarmamalı');
-  });
-
-  test('token bütçesi eşiği ayda bir kez uyarır', async () => {
-    saveSection('ai', { monthly_token_budget: 1000 });
-    insert('ai_usage', { purpose: 'sales', model: 'x', input_tokens: 850, output_tokens: 0 });
-    await scheduler.runJob('token_budget_watch');
-    await scheduler.runJob('token_budget_watch');
-    assert.equal(notes('Yapay zeka bütçesinin %85%').length, 1);
-    insert('ai_usage', { purpose: 'sales', model: 'x', input_tokens: 200, output_tokens: 0 });
-    await scheduler.runJob('token_budget_watch');
-    assert.equal(notes('Yapay zeka aylık bütçesi DOLDU').length, 1);
-    saveSection('ai', { monthly_token_budget: 0 });
-  });
-
-  test('güvenlik taraması olağan dışı iade sayısını yakalar', async () => {
-    run(`UPDATE payments SET status = 'paid' WHERE id = ?`, paymentId);
-    for (let i = 0; i < 4; i++) insert('refunds', { payment_id: paymentId, amount: 1 });
+  test('güvenlik taraması çok sayıda IP adresinden kullanımı yakalar', async () => {
+    for (const ip of ['1.1.1.1', '2.2.2.2', '3.3.3.3']) {
+      insert('sessions', { id: `s-${ip}`, user_id: 1, ip, expires_at: '2999-01-01T00:00:00Z' });
+    }
     await scheduler.runJob('security_scan');
     const n = notes('Güvenlik taraması%');
     assert.equal(n.length, 1);
-    assert.match(n[0].body, /4 iade/);
+    assert.match(n[0].body, /farklı IP/);
   });
 
-  test('günlük özet ve aylık PDF rapor', async () => {
+  test('günlük özet bulunan ilanları ve bekleyenleri listeler', async () => {
+    insert('leads', { platform: 'r10', external_id: 'x1', title: 'Kuaför sitesi yapılacak', status: 'new', score: 80, url: 'https://www.r10.net/x1' });
     await scheduler.runJob('daily_digest');
-    assert.match(notes('Günlük özet%')[0].body, /Bekleyen ödeme: 0/);
-    const r = await scheduler.runJob('monthly_report');
-    assert.equal(r.status, 'ok');
-    assert.equal(notes('%aylık raporu').length, 1);
+    const body = notes('Günlük özet%')[0].body;
+    assert.match(body, /Yeni uygun ilan: 1/);
+    assert.match(body, /Kuaför sitesi yapılacak/);
   });
 
   test('yedek alınır ve eski yedekler silinir', async () => {

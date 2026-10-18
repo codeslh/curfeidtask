@@ -41,7 +41,7 @@ export const pct = (cur, prev) => (prev ? ((cur - prev) / Math.abs(prev)) * 100 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 /** Brand: name, tagline and the "K + spark" glyph (white on the gradient .logo tile). */
-export const BRAND = { name: 'Kalfa', tagline: 'Usta sensin, işi Kalfa yapar.' };
+export const BRAND = { name: 'Kalfa', tagline: 'Müşteri bulma kalfanız' };
 export const logo = (cls = '') => `<span class="logo ${cls}"><svg class="brand-glyph" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v34"/><path d="M21 37 36 22"/><path d="M29.5 29.5 44 49"/></g><path fill="currentColor" d="M45 9c.9 4.6 2.9 6.6 7.5 7.5-4.6.9-6.6 2.9-7.5 7.5-.9-4.6-2.9-6.6-7.5-7.5 4.6-.9 6.6-2.9 7.5-7.5z"/></svg></span>`;
 export const icon = (name, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="/assets/icons.svg#${name}"/></svg>`;
 export const initials = (name = '') => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr') || '?';
@@ -91,31 +91,26 @@ export function liveFilter(input, itemSel, root = document) {
 // --- Status pills -------------------------------------------------------------------
 
 const TONE = {
-  open: 'neutral', escalated: 'bad', closed: 'neutral', ai: 'accent', human: 'warn',
-  new: 'info', filtered_out: 'neutral', contacted: 'good', needs_admin: 'warn', won: 'good', lost: 'neutral',
-  pending: 'warn', paid: 'good', refunded: 'bad', partially_refunded: 'warn', cancelled: 'neutral', failed: 'bad',
-  building: 'accent', revision: 'accent', review: 'warn', build_failed: 'bad', approved: 'info', changes_requested: 'warn',
-  demo_live: 'info', customer_approved: 'good', awaiting_payment: 'warn', delivered: 'good',
+  open: 'neutral', closed: 'neutral',
+  new: 'info', filtered_out: 'neutral', contacted: 'accent', replied: 'good', won: 'good', lost: 'neutral', ignored: 'neutral',
+  analyzed: 'info', opted_out: 'bad', skipped: 'neutral', converted: 'good',
   ok: 'good', error: 'bad', running: 'accent', '2fa_failed': 'bad', login_failed: 'bad', login_blocked: 'bad', '2fa_disabled': 'warn',
   login_success: 'good', '2fa_enabled': 'good', admin: 'accent', operator: 'info', viewer: 'neutral',
 };
 export const LABELS = {
-  open: 'Açık', escalated: 'Admin bekliyor', closed: 'Kapalı', ai: 'Yapay zeka', human: 'Admin',
-  new: 'Yeni', filtered_out: 'Kapsam dışı', contacted: 'İletişime geçildi', needs_admin: 'Admin ilgilenmeli', won: 'Kazanıldı', lost: 'Kaybedildi',
-  pending: 'Bekliyor', paid: 'Ödendi', refunded: 'İade edildi', partially_refunded: 'Kısmi iade', cancelled: 'İptal', failed: 'Başarısız',
-  building: 'Geliştiriliyor', build_failed: 'Geliştirme başarısız', review: 'Kontrol bekliyor', revision: 'Revizyon', approved: 'Onaylandı',
-  demo_live: 'Demo müşteride', changes_requested: 'Değişiklik istendi', customer_approved: 'Müşteri onayladı',
-  awaiting_payment: 'Ödeme bekleniyor', delivered: 'Teslim edildi',
-  whatsapp: 'WhatsApp', web: 'Web', email: 'E-posta', platform: 'Platform',
+  open: 'Açık', closed: 'Kapalı',
+  new: 'Yeni', filtered_out: 'Kapsam dışı', contacted: 'Yazıldı', replied: 'Cevap verdi', won: 'Kazanıldı', lost: 'Kaybedildi', ignored: 'Görmezden gelindi',
+  analyzed: 'İncelendi', opted_out: 'İPTAL etti', skipped: 'Atlandı', converted: 'Müşteri oldu',
+  whatsapp: 'WhatsApp', web: 'Web', email: 'E-posta', platform: 'Platform', phone: 'Telefon', whatsapp_link: 'WhatsApp',
   login_success: 'Giriş', login_failed: 'Hatalı giriş', login_blocked: 'Engellendi', logout: 'Çıkış',
-  password_changed: 'Şifre değişti', session_revoked: 'Oturum sonlandırıldı', settings_changed: 'Ayar değişti', refund: 'İade',
+  password_changed: 'Şifre değişti', session_revoked: 'Oturum sonlandırıldı', settings_changed: 'Ayar değişti',
   password_ok: 'Şifre doğru, 2FA bekleniyor', '2fa_failed': 'Hatalı 2FA kodu', '2fa_enabled': '2FA açıldı', '2fa_disabled': '2FA kapatıldı',
   password_reset: 'Şifre sıfırlandı', reset_requested: 'Sıfırlama istendi', session_expired: 'Oturum zaman aşımı', recovery_codes_regenerated: 'Kurtarma kodları yenilendi',
   ok: 'Başarılı', error: 'Hata', running: 'Çalışıyor', schedule: 'Zamanlanmış', manual: 'Elle',
   admin: 'Yönetici', operator: 'Operatör', viewer: 'İzleyici',
 };
 export const pill = (s, text) => `<span class="pill ${TONE[s] || 'neutral'}">${esc(text ?? LABELS[s] ?? s)}</span>`;
-export const CHANNEL_ICON = { whatsapp: 'message-circle', web: 'globe', email: 'mail', platform: 'briefcase' };
+export const CHANNEL_ICON = { whatsapp: 'message-circle', web: 'globe', email: 'mail', platform: 'briefcase', phone: 'phone' };
 
 // --- API ----------------------------------------------------------------------------
 

@@ -6,7 +6,6 @@ import path from 'node:path';
 export const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fo-test-'));
 process.env.DATA_DIR = tmp;
 process.env.DB_FILE = path.join(tmp, 'test.db');
-process.env.AI_MOCK = '1';
 process.env.PUBLIC_URL = 'http://localhost';
 
 /** Tiny cookie-aware API client bound to one server. */

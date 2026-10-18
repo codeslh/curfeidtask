@@ -3,51 +3,24 @@ import { all, run } from '../db.js';
 // Every admin-editable setting with its default. Stored as JSON in the settings table.
 export const DEFAULTS = {
   business: {
-    name: 'Stüdyom',                          // shown to customers; set your own in Ayarlar → İşletme
+    name: 'Stüdyom',                          // used in message signatures; set your own in Ayarlar → İşletme
     owner_name: 'Admin',
     admin_email: 'admin@example.com',
+    phone: '',
+    website: '',
     base_currency: 'TRY',
-    tax_rate: 20,
-    fx_rates: { TRY: 1, USD: 41, EUR: 47 },   // 1 unit = X base currency
-    iban: '',
-    iban_holder: '',
-    bank_name: '',
-    timezone: 'Europe/Istanbul',              // used by daily/monthly scheduled tasks
-  },
-  ai: {
-    enabled: true,
-    sales_persona: 'Güler yüzlü, çözüm odaklı, ikna edici ama dürüst bir satış temsilcisi.',
-    max_discount_percent: 10,
-    monthly_token_budget: 2000000,           // input+output tokens; 0 = unlimited
-    escalate_after_unsatisfied: 2,            // consecutive unsatisfied customer turns
-    auto_build: true,                         // start building as soon as a project is won
+    fx_rates: { TRY: 1, USD: 41, EUR: 47 },   // 1 unit = X base currency (for budget filters)
+    timezone: 'Europe/Istanbul',              // used by daily scheduled tasks
   },
   scanner: {
-    enabled_platforms: ['mock'],
-    keywords: ['web sitesi', 'website', 'landing page', 'e-ticaret'],
-    exclude_keywords: ['wordpress eklenti', 'kripto'],
+    keywords: ['web sitesi', 'website', 'web tasarım', 'landing page', 'e-ticaret', 'wordpress'],
+    exclude_keywords: ['kripto', 'bahis'],
     min_budget: 0,
     max_budget: 0,                            // 0 = no upper bound
     currencies: [],                           // empty = any
     max_age_hours: 72,
-    max_leads_per_scan: 20,
-    rss_feeds: [],                            // [{name, url}]
-  },
-  payments: {
-    provider: 'iban',                         // iban | stripe
-    send_iban_automatically: true,
-    payment_due_days: 7,
-  },
-  security: {
-    max_failed_logins: 5,                     // per email in 15 minutes -> alert + lockout
-    max_failed_per_ip: 20,                    // any account, per IP in 15 minutes -> IP blocked + alert
-    alert_on_new_ip: true,
-    require_2fa_for_admins: false,            // admins without 2FA are sent to the setup screen
-    idle_timeout_minutes: 120,                // 0 = only the absolute session lifetime applies
-    allowed_ips: [],                          // empty = any IP may use the panel
-    large_refund_amount: 5000,                // base currency; larger refunds raise a security alert
-    max_refunds_per_day: 3,                   // more refunds than this in 24h raise an alert
-    audit_retention_days: 365,
+    max_leads_per_scan: 30,                   // per source
+    notify_new: true,                         // e-mail the admin when a scan finds matching listings
   },
   prospecting: {
     location: '',                             // address / district / city to scan around
@@ -57,19 +30,31 @@ export const DEFAULTS = {
     source: 'osm',                            // osm (free) | google (needs GOOGLE_PLACES_API_KEY)
     max_per_scan: 40,
     min_score: 60,                            // only businesses at or above this score are offered for contact
-    auto_send: false,                         // scheduled scans also send (email / WhatsApp template) within the daily limit
+    auto_send: false,                         // scheduled scans also send e-mails within the daily limit
     daily_limit: 20,
-    prefer_channel: 'email',                  // email | whatsapp
     signature: '',                            // appended to every outreach message
     opt_out_text: "Bu konuda mesaj almak istemezseniz 'İPTAL' yazmanız yeterli; bir daha rahatsız etmeyiz.",
   },
+  // Message templates. Placeholders: {ad} {kategori} {bulgu} {ilan} {isletmem} {yetkili} {telefonum} {sitem}
+  templates: {
+    prospect_no_site: "Merhaba, {ad} için internette bir web sitesine rastlayamadım; müşterilerin çoğu artık bir {kategori} seçmeden önce Google'da arama yapıyor. Size özel, mobil uyumlu bir web sitesi hazırlayıp önce ücretsiz bir taslağını gösterebilirim. İlginizi çekerse kısaca konuşalım mı?",
+    prospect_social: "Merhaba, {ad} sayfanızı sosyal medyada gördüm. Google'da çıkan kendi web siteniz olursa yeni müşterilere ulaşmanız çok daha kolay olur. Size uygun, mobil uyumlu bir site hazırlayıp önce ücretsiz bir taslağını gösterebilirim. Kısaca konuşalım mı?",
+    prospect_old_site: "Merhaba, {ad} web sitenize baktım: {bulgu}. Sitenizi hızlı, mobil uyumlu ve güncel hale getirebilirim; önce ücretsiz bir taslak gösterebilirim. İlginizi çekerse kısaca konuşalım mı?",
+    prospect_subject: '{ad} için web sitesi önerisi',
+    lead_message: 'Merhaba, "{ilan}" ilanınızı gördüm. Bu işi yapabilirim; benzer işlerden örnekler paylaşabilir, size uygun bir teklif hazırlayabilirim. Detayları konuşmak ister misiniz?',
+    lead_subject: '"{ilan}" ilanınız hakkında',
+  },
+  security: {
+    max_failed_logins: 5,                     // per email in 15 minutes -> alert + lockout
+    max_failed_per_ip: 20,                    // any account, per IP in 15 minutes -> IP blocked + alert
+    alert_on_new_ip: true,
+    require_2fa_for_admins: false,            // admins without 2FA are sent to the setup screen
+    idle_timeout_minutes: 120,                // 0 = only the absolute session lifetime applies
+    allowed_ips: [],                          // empty = any IP may use the panel
+    audit_retention_days: 365,
+  },
   automation: {
-    payment_reminder_days: 2,                 // remind the customer every N days while unpaid
-    payment_max_reminders: 3,
-    followup_after_hours: 24,                 // AI follows up a silent customer after N hours
-    followup_max: 1,
-    escalation_renotify_minutes: 120,         // re-alert the admin about untouched escalations
-    token_budget_warn_percent: 80,
+    reply_reminder_hours: 4,                  // re-alert when a customer's reply waits this long
     backup_keep: 14,                          // daily backups to keep
     notification_retention_days: 90,
   },

@@ -36,5 +36,5 @@ console.log(`
     npm start
 
   Sonra tarayıcıda http://localhost:${process.env.PORT || 3000} adresini açın ve yönetici hesabınızı oluşturun.
-  Gerçek yapay zeka için .env dosyasına ANTHROPIC_API_KEY ekleyin (yoksa demo modunda çalışır).
+  E-posta göndermek ve cevapları okumak için .env dosyasına SMTP_* ve IMAP_* bilgilerini girin.
 `);

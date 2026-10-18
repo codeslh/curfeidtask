@@ -4,8 +4,10 @@ import { get, openDb } from './db.js';
 import './services/jobs.js';
 import { startScheduler } from './services/scheduler.js';
 import { createUser } from './services/security.js';
+import { seedSources } from './services/sources.js';
 
 openDb();
+seedSources();
 
 if (!get('SELECT id FROM users LIMIT 1') && config.admin.password) {
   await createUser({ email: config.admin.email, name: config.admin.name, password: config.admin.password });
@@ -19,9 +21,8 @@ const server = createApp().listen(config.port, () => {
   console.log('');
   console.log('  Kalfa çalışıyor');
   console.log(`  Yönetim paneli : ${config.publicUrl}`);
-  console.log(`  Müşteri sohbeti: ${config.publicUrl}/chat`);
-  console.log(`  Yapay zeka     : ${config.aiMock ? 'DEMO modu (ANTHROPIC_API_KEY yok) — cevaplar örnek kurallarla üretilir' : config.aiModel}`);
   console.log(`  E-posta        : ${config.smtp.host ? config.smtp.host : 'SMTP ayarlı değil — e-postalar bu pencereye yazılır'}`);
+  console.log(`  Gelen kutusu   : ${config.imap.host ? config.imap.host : 'IMAP ayarlı değil — cevapları elle ekleyebilirsiniz'}`);
   if (!hasUser) console.log('\n  İlk açılış: tarayıcıda yukarıdaki adresi açıp yönetici hesabınızı oluşturun.');
   console.log('\n  Durdurmak için Ctrl+C\n');
 });

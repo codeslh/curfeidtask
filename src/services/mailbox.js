@@ -3,7 +3,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { config } from '../config.js';
 import { get } from '../db.js';
-import { handleIncoming } from './sales.js';
+import { handleIncoming } from './inbox.js';
 
 export const mailboxReady = () => Boolean(config.imap.host && config.imap.user && config.imap.pass);
 

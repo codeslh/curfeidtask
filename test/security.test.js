@@ -103,28 +103,27 @@ describe('roller ve yetkiler', () => {
     assert.equal((await viewer.req('POST', '/api/auth/login', { email: 'v@test.com', password: PW })).status, 200);
   });
 
-  test('operatör satış işlerini yapar ama para/ayar/ekip işlemlerine erişemez', async () => {
+  test('operatör müşteri bulma işlerini yapar ama ayar/ekip/dışa aktarma işlemlerine erişemez', async () => {
     assert.equal((await operator.req('GET', '/api/conversations')).status, 200);
-    assert.equal((await operator.req('POST', '/api/products', { name: 'Yeni', price: 10 })).status, 200);
-    assert.equal((await operator.req('GET', '/api/payments')).status, 200);
-    assert.equal((await operator.req('POST', '/api/payments/1/refund', { amount: 1 })).status, 403);
+    assert.equal((await operator.req('POST', '/api/leads', { title: 'Elle eklenen ilan' })).status, 200);
+    assert.equal((await operator.req('POST', '/api/sources', { kind: 'page', url: 'https://www.r10.net/web-tasarim/' })).status, 200);
     assert.equal((await operator.req('GET', '/api/settings')).status, 403);
     assert.equal((await operator.req('GET', '/api/users')).status, 403);
     assert.equal((await operator.req('GET', '/api/backup')).status, 403);
-    assert.equal((await operator.req('GET', '/api/export/payments.csv')).status, 403);
+    assert.equal((await operator.req('GET', '/api/export/leads.csv')).status, 403);
     assert.equal((await operator.req('GET', '/api/security/sessions')).status, 200);
   });
 
   test('izleyici sadece okuyabilir', async () => {
     assert.equal((await viewer.req('GET', '/api/dashboard')).status, 200);
-    assert.equal((await viewer.req('POST', '/api/products', { name: 'X' })).status, 403);
+    assert.equal((await viewer.req('POST', '/api/leads', { title: 'X' })).status, 403);
     assert.equal((await viewer.req('POST', '/api/leads/scan')).status, 403);
     assert.equal((await viewer.req('GET', '/api/audit')).status, 403);
   });
 
   test('yetki tablosu', () => {
-    assert.equal(canAccess('operator', 'POST', '/projects/1/deploy'), true);
-    assert.equal(canAccess('operator', 'POST', '/expenses'), false);
+    assert.equal(canAccess('operator', 'POST', '/leads/1/contact'), true);
+    assert.equal(canAccess('operator', 'GET', '/export/prospects.csv'), false);
     assert.equal(canAccess('viewer', 'POST', '/security/password'), true);
     assert.equal(canAccess('viewer', 'GET', '/jobs'), false);
   });
@@ -146,12 +145,12 @@ describe('denetim kaydı, oturum ve erişim kuralları', () => {
   beforeEach(() => resetRateLimits());
 
   test('her değişiklik denetim kaydına gizli alanlar maskelenerek yazılır', async () => {
-    await admin.req('PUT', '/api/settings/business', { name: 'Test Stüdyo', iban: 'TR12' });
+    await admin.req('PUT', '/api/settings/business', { name: 'Test Stüdyo', api_token: 'gizli' });
     const rows = (await admin.req('GET', '/api/audit?q=settings')).data;
     const row = rows.find((r) => r.action === 'PUT /api/settings/business');
     assert.ok(row);
     assert.equal(row.email, 'admin@test.com');
-    assert.equal(JSON.parse(row.detail).iban, '***');
+    assert.equal(JSON.parse(row.detail).api_token, '***');
     assert.equal(JSON.parse(row.detail).name, 'Test Stüdyo');
     const users = all(`SELECT detail FROM audit_log WHERE action = 'POST /api/users'`);
     assert.ok(users.every((u) => JSON.parse(u.detail).password === '***'));
@@ -227,12 +226,9 @@ describe('denetim kaydı, oturum ve erişim kuralları', () => {
     assert.equal((await fetch(`${base}/assets/fonts/../../package.json`)).status, 404);
   });
 
-  test('müşteri sohbeti hız sınırına takılır', async () => {
-    resetRateLimits();
-    const c = client(base);
-    const { token } = (await c.req('POST', '/api/chat/start', { name: 'Spam' })).data;
-    const codes = [];
-    for (let i = 0; i < 17; i++) codes.push((await c.req('POST', `/api/chat/${token}/messages`, { text: `mesaj ${i}` })).status);
-    assert.equal(codes.filter((s) => s === 429).length, 2);
+  test('kaldırılan sohbet, ödeme ve demo uçları artık yok', async () => {
+    assert.equal((await fetch(`${base}/api/chat/info`)).status, 401);
+    assert.equal((await admin.req('GET', '/api/payments')).status, 404);
+    assert.equal((await fetch(`${base}/chat`)).status, 404);
   });
 });

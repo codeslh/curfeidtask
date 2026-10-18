@@ -17,13 +17,13 @@ export function requireAuth(req, res, next) {
 /*
  * Role-based access. Paths are relative to /api.
  *   admin    - everything
- *   operator - day-to-day sales & production work; no money movement, settings or team
+ *   operator - day-to-day prospecting work; no exports, settings or team
  *   viewer   - read-only, no security/settings/team data
  * Every role may manage its own account (password, 2FA, own sessions).
  */
 const OWN_ACCOUNT = [/^\/security\/(password|sessions|2fa)/, /^\/me$/];
 const ADMIN_ONLY = [/^\/settings/, /^\/users/, /^\/audit/, /^\/backup/, /^\/jobs/, /^\/security\/events/];
-const FINANCE = [/^\/payments/, /^\/invoices/, /^\/expenses/, /^\/ai-usage/, /^\/reports/, /^\/export/];
+const BULK_EXPORT = [/^\/export/];
 
 export function canAccess(role, method, path) {
   if (role === 'admin') return true;
@@ -31,7 +31,7 @@ export function canAccess(role, method, path) {
   if (ADMIN_ONLY.some((r) => r.test(path))) return false;
   const read = method === 'GET' || method === 'HEAD';
   if (role === 'viewer') return read;
-  if (role === 'operator') return !FINANCE.some((r) => r.test(path)) || (read && !/^\/export/.test(path));
+  if (role === 'operator') return !BULK_EXPORT.some((r) => r.test(path));
   return false;
 }
 
@@ -47,7 +47,7 @@ export function authorize(req, res, next) {
   next();
 }
 
-const SECRET_FIELDS = /pass|secret|token|code|iban/i;
+const SECRET_FIELDS = /pass|secret|token|code/i;
 
 function redact(body) {
   if (!body || typeof body !== 'object') return null;

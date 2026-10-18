@@ -1,12 +1,12 @@
-// "Bölge taraması": find nearby businesses, judge how likely they are to need a
-// website, draft a personal message and (with the admin's approval) contact them.
+// "Bölge taraması": find nearby businesses, judge by simple rules how likely they are
+// to need a website, fill in a message template and (when you approve) contact them.
 import { config } from '../config.js';
 import { all, get, insert, run, update } from '../db.js';
-import { AiUnavailableError, callClaude, mockGuard } from './ai.js';
 import { assertPublicUrl, httpFetch, USER_AGENT } from './http.js';
+import { addMessage, findOrCreateConversation } from './inbox.js';
 import { notifyAdmin, sendMail } from './notify.js';
-import { addMessage, catalog, findOrCreateConversation } from './sales.js';
 import { getSection } from './settings.js';
+import { render, template } from './templates.js';
 import { sendWhatsAppTemplate } from './whatsapp.js';
 
 // Category key -> label, OpenStreetMap tag filters, Google Places types, weight (how much a site matters).
@@ -173,7 +173,7 @@ export async function checkWebsite(url) {
   }
 }
 
-/** Deterministic score + human readable findings. Used as-is in demo mode and as AI input otherwise. */
+/** Rule-based score (0-100) + human readable findings. */
 export function heuristicScore(b, site) {
   const signals = [];
   let score = 0;
@@ -195,56 +195,22 @@ export function heuristicScore(b, site) {
   return { score: Math.max(0, Math.min(100, Math.round(score))), signals };
 }
 
-// --- AI analysis & message -------------------------------------------------------------
-
-const ANALYSIS_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['score', 'reason', 'suggested_product', 'message'],
-  properties: {
-    score: { type: 'integer', description: '0-100: bu işletmenin yeni/yenilenmiş bir web sitesine ihtiyaç duyma olasılığı' },
-    reason: { type: 'string', description: 'Puanın kısa gerekçesi (1-2 cümle)' },
-    suggested_product: { type: 'string', description: 'Katalogdan en uygun ürünün adı' },
-    message: { type: 'string', description: 'İşletmeye gönderilecek kısa, kişisel ilk mesaj (imza ve ret cümlesi hariç)' },
-  },
-};
-
-function templateMessage(b, signals, product) {
-  const label = CATEGORIES[b.category]?.label?.toLocaleLowerCase('tr') || 'işletme';
-  const hook = signals[0]?.startsWith('Web sitesi yok')
-    ? `${b.name} için internette bir web sitesine rastlayamadım; müşterilerin çoğu artık bir ${label} seçmeden önce Google'da arama yapıyor.`
-    : signals[0]?.startsWith('Sadece sosyal medya')
-      ? `${b.name}'i sosyal medyada gördüm; Google'da çıkan kendi web siteniz olursa yeni müşterilere ulaşmanız çok daha kolay olur.`
-      : `${b.name}'in web sitesine baktım: ${signals.filter((s) => !s.startsWith('Güncel')).slice(0, 2).join(', ').toLocaleLowerCase('tr')}.`;
-  return `Merhaba, ${hook} Size özel, mobil uyumlu bir ${product || 'web sitesi'} hazırlayıp önce ücretsiz bir demosunu gösterebilirim. İlginizi çekerse kısaca konuşalım mı?`;
+/** Picks the template that fits the findings (no site / social only / weak site). */
+export function draftMessage(p, signals) {
+  const vars = {
+    ad: p.name,
+    kategori: CATEGORIES[p.category]?.label?.toLocaleLowerCase('tr') || 'işletme',
+    bulgu: signals.filter((s) => !/^(Güncel|İletişim|Zincir)/.test(s)).slice(0, 2).join(', ').toLocaleLowerCase('tr') || 'sitenizi yenileyebiliriz',
+  };
+  const key = !signals.length || signals[0].startsWith('Web sitesi yok') || signals[0].startsWith('Web sitesi açılmıyor') ? 'prospect_no_site'
+    : signals[0].startsWith('Sadece sosyal medya') ? 'prospect_social' : 'prospect_old_site';
+  return render(template(key), vars);
 }
 
-export async function analyzeOne(p) {
+export function analyzeOne(p) {
   const site = json(p.site_check) || {};
-  const base = heuristicScore({ ...p, chain: json(p.raw)?.brand ? true : false }, site);
-  const products = catalog().products;
-  const fallbackProduct = (site.exists && site.ok ? products.find((x) => /tanıtım|kurumsal/i.test(x.name)) : products.find((x) => /landing|tanıtım/i.test(x.name)))?.name || products[0]?.name || 'web sitesi';
-  if (config.aiMock) {
-    mockGuard('prospect');
-    return { score: base.score, signals: base.signals, reason: base.signals.slice(0, 2).join('; '), suggested_product: fallbackProduct, message: templateMessage(p, base.signals, fallbackProduct) };
-  }
-  const business = getSection('business');
-  const r = await callClaude({
-    purpose: 'prospect', schema: ANALYSIS_SCHEMA, effort: 'low', maxTokens: 3000,
-    system: [
-      `Sen "${business.name}" adlı web tasarım/yazılım işletmesi için çalışan bir satış araştırmacısısın.`,
-      'Sana yakındaki bir işletmenin bilgileri ve web sitesi incelemesinin sonuçları verilecek.',
-      '1) Bu işletmenin yeni veya yenilenmiş bir web sitesine ihtiyaç duyma olasılığını 0-100 arası puanla. Zincir markalar, kamu kurumları ve zaten iyi bir sitesi olanlar düşük puan alır.',
-      '2) Katalogdan en uygun ürünü seç.',
-      '3) İşletmeye gönderilecek ilk mesajı yaz: Türkçe, en fazla 4 cümle, samimi ama profesyonel, işletmenin adını ve incelemedeki somut bir gözlemi kullan, abartılı vaatlerde bulunma, fiyat yazma, ücretsiz demo teklif et ve kısa bir görüşme sor. İmza ve "mesaj almak istemezseniz" cümlesini EKLEME; sistem ekler.',
-    ].join('\n'),
-    messages: [{ role: 'user', content: JSON.stringify({
-      isletme: { ad: p.name, kategori: CATEGORIES[p.category]?.label, adres: p.address, telefon: Boolean(p.phone), eposta: Boolean(p.email), web: p.website, ek: json(p.raw) },
-      site_incelemesi: site, otomatik_bulgular: base.signals, kural_tabanli_puan: base.score,
-      katalog: products.map((x) => ({ ad: x.name, fiyat: x.price, aciklama: x.description })),
-    }) }],
-  });
-  return { score: Math.max(0, Math.min(100, r.score)), signals: base.signals, reason: r.reason, suggested_product: r.suggested_product, message: r.message };
+  const r = heuristicScore({ ...p, chain: Boolean(json(p.raw)?.brand) }, site);
+  return { ...r, reason: r.signals.slice(0, 2).join('; '), message: draftMessage(p, r.signals) };
 }
 
 // --- Do-not-contact ----------------------------------------------------------------------
@@ -292,7 +258,6 @@ export async function scan(overrides = {}) {
         await analyzeProspect(id);
         summary.analyzed++;
       } catch (err) {
-        if (err instanceof AiUnavailableError) { summary.errors.push(err.message); break; }
         summary.errors.push(`${b.name}: ${err.message}`);
       }
     }
@@ -311,9 +276,9 @@ export async function analyzeProspect(id) {
   if (!p) throw new Error('İşletme bulunamadı');
   const site = await checkWebsite(p.website);
   update('prospects', id, { site_check: JSON.stringify(site) });
-  const r = await analyzeOne({ ...p, site_check: JSON.stringify(site) });
+  const r = analyzeOne({ ...p, site_check: JSON.stringify(site) });
   update('prospects', id, {
-    score: r.score, score_reason: r.reason, signals: JSON.stringify(r.signals), suggested_product: r.suggested_product,
+    score: r.score, score_reason: r.reason, signals: JSON.stringify(r.signals),
     message: r.message, status: ['new', 'analyzed'].includes(p.status) ? 'analyzed' : p.status, analyzed_at: new Date().toISOString(),
   });
   return get('SELECT * FROM prospects WHERE id = ?', id);
@@ -329,12 +294,12 @@ export function fullMessage(p, text = p.message) {
 
 export const contactedToday = () => get(`SELECT COUNT(*) AS n FROM prospects WHERE contacted_at >= ?`, new Date(new Date().setHours(0, 0, 0, 0)).toISOString()).n;
 
-function linkConversation(p, channel, body) {
+function linkConversation(p, channel, body, subject) {
   const conv = channel === 'email'
     ? findOrCreateConversation({ channel: 'email', externalId: p.email.toLowerCase(), name: p.name, email: p.email, platform: 'bolge' })
     : findOrCreateConversation({ channel: 'whatsapp', externalId: p.phone, name: p.name, phone: p.phone, email: p.email, platform: 'bolge' });
   run(`UPDATE customers SET platform = 'bolge' WHERE id = ? AND platform IS NULL`, conv.customer_id);
-  addMessage(conv.id, 'ai', body, { outreach: true, prospect_id: p.id, channel });
+  addMessage(conv.id, 'admin', body, { outreach: true, prospect_id: p.id, channel, ...(subject ? { subject } : {}) });
   return conv;
 }
 
@@ -359,7 +324,7 @@ export async function contact(id, { channel, message } = {}) {
   if (channel === 'email') {
     if (!p.email) throw new Error('Bu işletmenin e-posta adresi yok');
     if (!config.smtp.host) throw new Error('E-posta göndermek için .env dosyasında SMTP ayarlarını yapın (veya WhatsApp bağlantısını kullanın)');
-    await sendMail({ to: p.email, subject: `${p.name} için web sitesi önerisi`, text: body });
+    await sendMail({ to: p.email, subject: render(template('prospect_subject'), { ad: p.name }), text: body });
   } else if (channel === 'whatsapp') {
     if (!p.phone) throw new Error('Bu işletmenin telefonu yok');
     if (!config.whatsapp.token || !config.whatsapp.outreachTemplate) throw new Error('WhatsApp ile otomatik ilk mesaj için WHATSAPP_TOKEN ve onaylı bir WHATSAPP_OUTREACH_TEMPLATE gerekir; "WhatsApp\'ta aç" seçeneğini kullanın');
@@ -371,7 +336,9 @@ export async function contact(id, { channel, message } = {}) {
     throw new Error('Geçersiz kanal');
   }
 
-  const conv = channel === 'phone' ? null : linkConversation(p, channel === 'email' ? 'email' : 'whatsapp', channel === 'whatsapp' ? `[Şablon: ${config.whatsapp.outreachTemplate}] ${body}` : body);
+  const conv = channel === 'phone' ? null : linkConversation(p, channel === 'email' ? 'email' : 'whatsapp',
+    channel === 'whatsapp' ? `[Şablon: ${config.whatsapp.outreachTemplate}] ${body}` : body,
+    channel === 'email' ? render(template('prospect_subject'), { ad: p.name }) : null);
   update('prospects', id, { status: 'contacted', channel, contacted_at: new Date().toISOString(), conversation_id: conv?.id ?? null, customer_id: conv?.customer_id ?? null });
   return get('SELECT * FROM prospects WHERE id = ?', id);
 }
@@ -387,8 +354,7 @@ export async function autoSend({ max = Infinity } = {}) {
   const candidates = all(`SELECT * FROM prospects WHERE status = 'analyzed' AND score >= ? ORDER BY score DESC`, s.min_score);
   for (const p of candidates) {
     if (!budget) break;
-    const order = s.prefer_channel === 'whatsapp' ? ['whatsapp', 'email'] : ['email', 'whatsapp'];
-    const channel = order.find((c) => (c === 'email' ? p.email && config.smtp.host : p.phone && waReady));
+    const channel = ['email', 'whatsapp'].find((c) => (c === 'email' ? p.email && config.smtp.host : p.phone && waReady));
     if (!channel) { skipped.push(p.name); continue; }
     try {
       await contact(p.id, { channel });

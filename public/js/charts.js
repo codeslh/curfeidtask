@@ -6,7 +6,6 @@ const niceMax = (v) => {
   const mag = 10 ** Math.floor(Math.log10(v));
   return [1, 2, 2.5, 5, 10].map((m) => m * mag).find((m) => m >= v);
 };
-const monthLabel = (m) => new Date(`${m}-01T12:00:00`).toLocaleDateString('tr-TR', { month: 'short' });
 
 function attachTooltip(el, hits, render) {
   const tip = $('.chart-tip', el);
@@ -64,14 +63,18 @@ export function areaChart(el, points, { height = 150, currency = '', axis = fals
   attachTooltip(el, pts.map((p) => p[0]), (i) => `<span class="tip-label">${esc(points[i].label)}</span><b>${money(points[i].value, currency)}</b>`);
 }
 
-/** Two-series grouped bars (revenue vs expenses) with legend and table fallback. */
-export function barChart(el, rows, currency) {
-  const raw = Math.max(0, ...rows.flatMap((r) => [r.revenue, r.expenses]));
-  if (!raw) { el.innerHTML = empty('Henüz veri yok', 'Ödemeler ve giderler oluştukça grafik burada görünecek.', 'chart-no-axes-column'); return; }
-  const W = 720; const H = 230; const pad = { l: 48, r: 6, t: 8, b: 24 };
+/**
+ * Grouped bars with legend, tooltip and a table fallback.
+ * rows: [{...}], series: [{key, label, color}], label(row) -> axis text, title(row) -> tooltip title.
+ */
+export function barChart(el, rows, { series, label, title = label, format = (v) => v.toLocaleString('tr-TR'), emptyText = 'Henüz veri yok' }) {
+  const raw = Math.max(0, ...rows.flatMap((r) => series.map((s) => r[s.key] || 0)));
+  if (!raw) { el.innerHTML = empty(emptyText, 'Veri oluştukça grafik burada görünecek.', 'chart-no-axes-column'); return; }
+  const W = 720; const H = 230; const pad = { l: 40, r: 6, t: 8, b: 24 };
   const max = niceMax(raw);
   const step = (W - pad.l - pad.r) / rows.length;
-  const bw = Math.max(4, Math.min(16, step / 2 - 5));
+  const gap = 2;
+  const bw = Math.max(3, Math.min(16, (step - 8) / series.length - gap));
   const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
   const bar = (bx, v, color) => {
     const top = y(v); const h = H - pad.b - top;
@@ -79,25 +82,22 @@ export function barChart(el, rows, currency) {
     const r = Math.min(4, h, bw / 2);
     return `<path fill="${color}" d="M${bx},${H - pad.b} V${top + r} q0,-${r} ${r},-${r} h${bw - 2 * r} q${r},0 ${r},${r} V${H - pad.b} Z"/>`;
   };
-  el.innerHTML = `<div class="legend"><span><i style="background:var(--series-1)"></i>Ciro</span><span><i style="background:var(--series-2)"></i>Gider</span></div>
-  <div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Aylık ciro ve gider">
-    ${[0, 0.25, 0.5, 0.75, 1].map((f) => `<line class="grid-line" x1="${pad.l}" x2="${W - pad.r}" y1="${y(max * f)}" y2="${y(max * f)}"/><text class="axis" x="${pad.l - 8}" y="${y(max * f) + 4}" text-anchor="end">${Math.round(max * f).toLocaleString('tr-TR', { notation: 'compact' })}</text>`).join('')}
+  const every = rows.length > 16 ? 3 : rows.length > 8 ? 2 : 1;
+  el.innerHTML = `<div class="legend">${series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('')}</div>
+  <div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(series.map((s) => s.label).join(', '))}">
+    ${[0, 0.5, 1].map((f) => `<line class="grid-line" x1="${pad.l}" x2="${W - pad.r}" y1="${y(max * f)}" y2="${y(max * f)}"/><text class="axis" x="${pad.l - 8}" y="${y(max * f) + 4}" text-anchor="end">${Math.round(max * f).toLocaleString('tr-TR', { notation: 'compact' })}</text>`).join('')}
     ${rows.map((r, i) => {
       const cx = pad.l + step * i + step / 2;
+      const start = cx - (series.length * (bw + gap) - gap) / 2;
       return `<g><rect class="col-hover" data-i="${i}" x="${pad.l + step * i + 2}" y="${pad.t}" width="${step - 4}" height="${H - pad.t - pad.b}" rx="6"/>
-        ${bar(cx - bw - 1, r.revenue, 'var(--series-1)')}${bar(cx + 1, r.expenses, 'var(--series-2)')}
-        <text class="axis" x="${cx}" y="${H - 6}" text-anchor="middle">${monthLabel(r.month)}</text></g>`;
+        ${series.map((s, k) => bar(start + k * (bw + gap), r[s.key] || 0, s.color)).join('')}
+        ${(rows.length - 1 - i) % every === 0 ? `<text class="axis" x="${cx}" y="${H - 6}" text-anchor="middle">${esc(label(r))}</text>` : ''}</g>`;
     }).join('')}
   </svg><div class="chart-tip" hidden></div></div>
-  <details class="table-toggle"><summary>Tablo olarak göster</summary><table class="table"><thead><tr><th>Ay</th><th class="num">Ciro</th><th class="num">Gider</th><th class="num">Kâr</th></tr></thead><tbody>
-  ${rows.map((r) => `<tr><td>${r.month}</td><td class="num">${money(r.revenue, currency)}</td><td class="num">${money(r.expenses, currency)}</td><td class="num">${money(r.profit, currency)}</td></tr>`).join('')}</tbody></table></details>`;
-  attachTooltip(el, [], (i) => {
-    const r = rows[i];
-    return `<span class="tip-label">${new Date(`${r.month}-01T12:00:00`).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}</span>
-      <div class="tip-row"><i style="background:var(--series-1)"></i>Ciro<b>${money(r.revenue, currency)}</b></div>
-      <div class="tip-row"><i style="background:var(--series-2)"></i>Gider<b>${money(r.expenses, currency)}</b></div>
-      <div class="tip-row"><i></i>Kâr<b>${money(r.profit, currency)}</b></div>`;
-  });
+  <details class="table-toggle"><summary>Tablo olarak göster</summary><table class="table"><thead><tr><th></th>${series.map((s) => `<th class="num">${esc(s.label)}</th>`).join('')}</tr></thead><tbody>
+  ${rows.map((r) => `<tr><td>${esc(title(r))}</td>${series.map((s) => `<td class="num">${format(r[s.key] || 0)}</td>`).join('')}</tr>`).join('')}</tbody></table></details>`;
+  attachTooltip(el, [], (i) => `<span class="tip-label">${esc(title(rows[i]))}</span>
+    ${series.map((s) => `<div class="tip-row"><i style="background:${s.color}"></i>${esc(s.label)}<b>${format(rows[i][s.key] || 0)}</b></div>`).join('')}`);
 }
 
 /** Horizontal funnel; one hue, darker = earlier stage. steps: [{label, value}] */

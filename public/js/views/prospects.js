@@ -40,7 +40,7 @@ export async function viewProspects(main, openId) {
 
   main.innerHTML = `${pageHeader({
     title: 'Bölge taraması',
-    subtitle: 'Çevrenizdeki işletmeleri bulur, web sitelerini inceler ve yapay zekayla "web sitesine ihtiyacı var mı?" diye puanlar. Mesajları siz onaylayınca gönderilir.',
+    subtitle: 'Çevrenizdeki işletmeleri bulur, web sitelerini inceler ve "web sitesine ihtiyacı var mı?" diye puanlar. Mesaj taslağı şablonlarınızdan hazırlanır; siz onaylayınca gönderilir.',
     actions: `<a class="btn" href="#/settings/prospecting">${icon('settings', 'sm')} Ayarlar</a>
       <button class="btn ai" id="autoSend" ${d.stats.hot ? '' : 'disabled'}>${icon('send', 'sm')} Sıcak olanlara gönder</button>`,
   })}
@@ -177,7 +177,6 @@ export async function viewProspects(main, openId) {
             ${site.ok ? `${check(site.https, 'HTTPS')}${check(site.mobile, 'Mobil uyumlu')}${check(!site.copyright_year || new Date().getFullYear() - site.copyright_year < 3, site.copyright_year ? `Güncellik (© ${site.copyright_year})` : 'Güncellik')}${check(site.ms < 4000, `Hız (${((site.ms || 0) / 1000).toFixed(1)} sn)`)}` : ''}</ul>`}</div>
         </div>
         ${(p.signals || []).length ? `<div class="pd-signals">${p.signals.map((x) => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
-        ${p.suggested_product ? `<p class="small">${icon('package', 'xs')} Önerilen ürün: <b>${esc(p.suggested_product)}</b></p>` : ''}
         <label class="field">Mesaj ${canContact ? '<small>Düzenleyebilirsiniz; imza ve "İPTAL" cümlesi otomatik eklenir.</small>' : ''}
           <textarea id="pmsg" rows="6" ${canContact ? '' : 'readonly'}>${esc(p.message || '')}</textarea></label>
         ${p.status !== 'analyzed' && p.status !== 'new' ? `<div class="callout">${icon('circle-dot', 'sm')} Durum: <b>${STATUS[p.status]?.[0]}</b>${p.contacted_at ? ` · ${ago(p.contacted_at)} (${esc(p.channel)})` : ''}${p.conversation_id ? ` · <a class="link" href="#/conversations/${p.conversation_id}">Konuşmayı aç</a>` : ''}</div>` : ''}
@@ -215,7 +214,7 @@ export async function viewProspects(main, openId) {
         const saved = await act(() => PUT(`/prospects/${p.id}`, { message: msg() }));
         if (!saved?.whatsapp_link) return;
         window.open(saved.whatsapp_link, '_blank', 'noopener');
-        if (!(await confirmDialog('Mesajı WhatsApp\'tan gönderdiniz mi?', 'Gönderdiyseniz işletme "Yazıldı" olarak işaretlenir ve bir konuşma açılır; cevabını konuşmaya yapıştırırsanız yapay zeka yanıt önerir.', { confirmText: 'Evet, gönderdim' }))) return;
+        if (!(await confirmDialog('Mesajı WhatsApp\'tan gönderdiniz mi?', 'Gönderdiyseniz işletme "Yazıldı" olarak işaretlenir ve bir konuşma açılır; cevabını o konuşmaya yapıştırabilirsiniz.', { confirmText: 'Evet, gönderdim' }))) return;
       }
       if (ch === 'phone' && !(await confirmDialog('İşletmeyi aradınız mı?', 'Arandı olarak işaretlenir.', { confirmText: 'Evet' }))) return;
       const r = await busy(chBtn, () => act(() => POST(`/prospects/${p.id}/contact`, { channel: ch, message: msg() })));
