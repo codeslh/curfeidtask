@@ -40,6 +40,9 @@ export const pct = (cur, prev) => (prev ? ((cur - prev) / Math.abs(prev)) * 100 
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+/** Brand: name, tagline and the "K + spark" glyph (white on the gradient .logo tile). */
+export const BRAND = { name: 'Kalfa', tagline: 'Usta sensin, işi Kalfa yapar.' };
+export const logo = (cls = '') => `<span class="logo ${cls}"><svg class="brand-glyph" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v34"/><path d="M21 37 36 22"/><path d="M29.5 29.5 44 49"/></g><path fill="currentColor" d="M45 9c.9 4.6 2.9 6.6 7.5 7.5-4.6.9-6.6 2.9-7.5 7.5-.9-4.6-2.9-6.6-7.5-7.5 4.6-.9 6.6-2.9 7.5-7.5z"/></svg></span>`;
 export const icon = (name, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="/assets/icons.svg#${name}"/></svg>`;
 export const initials = (name = '') => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr') || '?';
 export function avatar(name, cls = '') {

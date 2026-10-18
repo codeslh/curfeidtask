@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" role="img" aria-label="Kalfa">
+  <defs>
+    <linearGradient id="kalfa-g2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#D45CFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="url(#kalfa-g2)"/>
+  <g fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v34"/><path d="M21 37 36 22"/><path d="M29.5 29.5 44 49"/>
+  </g>
+  <path fill="#fff" d="M45 9c.9 4.6 2.9 6.6 7.5 7.5-4.6.9-6.6 2.9-7.5 7.5-.9-4.6-2.9-6.6-7.5-7.5 4.6-.9 6.6-2.9 7.5-7.5z"/>
+  <text x="80" y="46" font-family="Geist, Inter, 'Segoe UI', Arial, sans-serif" font-size="42" font-weight="650" letter-spacing="-1.8" fill="#18181B">kalfa</text>
+</svg>

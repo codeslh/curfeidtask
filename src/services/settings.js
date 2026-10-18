@@ -3,7 +3,7 @@ import { all, run } from '../db.js';
 // Every admin-editable setting with its default. Stored as JSON in the settings table.
 export const DEFAULTS = {
   business: {
-    name: 'Freelance Stüdyo',
+    name: 'Stüdyom',                          // shown to customers; set your own in Ayarlar → İşletme
     owner_name: 'Admin',
     admin_email: 'admin@example.com',
     base_currency: 'TRY',

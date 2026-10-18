@@ -1,6 +1,10 @@
-# Freelance Otomasyon
+<p align="center"><img src="public/brand/kalfa-logo.svg" alt="Kalfa" height="64"></p>
 
-Freelancerlar için yapay zeka destekli CRM + otomatik yazılım üretim sistemi.
+# Kalfa
+
+> **Usta sensin, işi Kalfa yapar.**
+
+Kalfa, freelancerlar için yapay zeka destekli bir CRM ve otomatik yazılım üretim sistemidir: müşteriyle satış temsilcisi gibi konuşur, iş ilanlarını tarar, işi geliştirir, demoyu yayınlar ve ödemeyi takip eder.
 
 **1. Bölüm – Yapay zekalı CRM:** WhatsApp/web sohbetinden gelen müşterilere yapay zeka bir satış temsilcisi gibi cevap verir, fiyat tablosuna göre fiyat verir, örnek ürünleri gösterir. Müşteri memnun kalmazsa, yetkili isterse, yapay zekanın token bütçesi/kredisi biterse veya bir hata olursa konuşma **admine aktarılır ve e-posta gönderilir**; admin konuşmayı panelden devralıp kendisi yönetir.
 
@@ -19,6 +23,16 @@ Freelancerlar için yapay zeka destekli CRM + otomatik yazılım üretim sistemi
 | CRM / raporlar | Aylık net/brüt ciro, gider (yapay zeka maliyeti otomatik), kâr, yeni müşteri, dönüşüm, 12 aylık grafik, ürün performansı, yapay zeka durum değerlendirmesi ve çözüm önerileri, aylık PDF özet |
 | Güvenlik | İki adımlı doğrulama (QR + kurtarma kodları), roller (Yönetici / Operatör / İzleyici), denetim kaydı, şifremi unuttum, oturum yönetimi, IP izin listesi, hız sınırları, şüpheli işlem uyarıları, yedek ve CSV — ayrıntılar aşağıda |
 | Zamanlanmış görevler | 10 otomatik görev: tarama, takip mesajı, ödeme hatırlatma, günlük özet, aylık PDF rapor, yedek, güvenlik taraması… — ayrıntılar aşağıda |
+
+## Marka
+
+| Dosya | Kullanım |
+|---|---|
+| `public/brand/kalfa-mark.svg` | Uygulama ikonu / favicon (degrade zeminli "K") |
+| `public/brand/kalfa-logo.svg` | İkon + "kalfa" yazısı (açık zemin) |
+| `public/brand/kalfa-glyph.svg` | Tek renkli işaret (`currentColor`), koyu zeminler ve baskı için |
+
+Logo, "K" harfi ile üst köşedeki yapay zeka kıvılcımından oluşur: ustanın yanında işi yapan kalfa. Renkler: `#7C5CFF` → `#D45CFF` degrade; yazı Geist SemiBold.
 
 ## Arayüz
 

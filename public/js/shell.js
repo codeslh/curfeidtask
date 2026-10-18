@@ -1,6 +1,6 @@
 // App shell: auth screens, navigation, top bar, command palette and the hash router.
 import {
-  $, $$, GET, POST, THEMES, THEME_ICON, THEME_LABEL, api, app, avatar, esc, getTheme, icon, setTheme, skeleton, store, toast, LABELS,
+  $, $$, BRAND, GET, POST, THEMES, THEME_ICON, THEME_LABEL, api, app, avatar, esc, getTheme, icon, logo, setTheme, skeleton, store, toast, LABELS,
 } from './core.js';
 import { VIEWS } from './views/index.js';
 
@@ -46,8 +46,9 @@ function authLayout(inner) {
   root.innerHTML = `<div class="auth">
     <section class="auth-art" aria-hidden="true">
       <div class="aurora"></div>
-      <div class="auth-brand"><span class="logo">${icon('sparkles')}</span>Freelance Otomasyon</div>
+      <div class="auth-brand">${logo()}<span class="wordmark">${BRAND.name.toLocaleLowerCase('tr')}</span></div>
       <div class="auth-copy">
+        <span class="auth-tag">${BRAND.tagline}</span>
         <h2>Satış temsilcin, geliştiricin ve muhasebecin — tek bir yapay zekada.</h2>
         <div class="auth-cards">
           <div class="glass-card"><span class="tile-icon accent">${icon('message-circle')}</span><div><b>Ayşe Y.</b><p>"Landing page için fiyat alabilir miyim?"</p></div></div>
@@ -61,7 +62,7 @@ function authLayout(inner) {
   </div>`;
 }
 
-const authForm = (title, sub, body, after = '') => `<div class="auth-head"><h1>${title}</h1><p>${sub}</p></div>
+const authForm = (title, sub, body, after = '') => `<div class="auth-mobile-brand">${logo()}<span class="wordmark">${BRAND.name.toLocaleLowerCase('tr')}</span></div><div class="auth-head"><h1>${title}</h1><p>${sub}</p></div>
   <form id="f" class="stack">${body}<div class="form-error" id="err" role="alert"></div></form>${after}`;
 
 async function submitAuth(fn) {
@@ -160,7 +161,7 @@ function renderShell(active) {
   root.innerHTML = `<div class="shell">
     <aside class="sidebar" id="sidebar" aria-label="Ana menü">
       <div class="sb-top">
-        <a href="#/dashboard" class="sb-brand"><span class="logo">${icon('sparkles')}</span><span class="sb-text"><b>Freelance</b><small>Otomasyon</small></span></a>
+        <a href="#/dashboard" class="sb-brand" aria-label="${BRAND.name}">${logo()}<span class="sb-text"><b class="wordmark">${BRAND.name.toLocaleLowerCase('tr')}</b><small>Yapay zeka kalfanız</small></span></a>
         <button class="icon-btn sb-collapse" id="collapse" title="Menüyü daralt" aria-label="Menüyü daralt">${icon('panel-left')}</button>
       </div>
       <button class="sb-search" id="openPalette">${icon('search', 'sm')}<span class="sb-text">Ara veya komut çalıştır</span><kbd class="sb-text">⌘K</kbd></button>
@@ -250,7 +251,7 @@ export async function route() {
   } catch (err) {
     if (seq === routeSeq) main.innerHTML = `<div class="callout bad">${icon('circle-alert')} ${esc(err.message)}</div>`;
   }
-  document.title = `${NAV.find(([k]) => k === key)?.[1] || 'Panel'} · Freelance Otomasyon`;
+  document.title = `${NAV.find(([k]) => k === key)?.[1] || 'Panel'} · ${BRAND.name}`;
 }
 app.route = route;
 

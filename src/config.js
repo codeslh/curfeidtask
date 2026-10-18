@@ -37,7 +37,7 @@ export const config = {
     secure: env.SMTP_SECURE === '1',
     user: env.SMTP_USER || '',
     pass: env.SMTP_PASS || '',
-    from: env.SMTP_FROM || 'Freelance Otomasyon <no-reply@localhost>',
+    from: env.SMTP_FROM || 'Kalfa <no-reply@localhost>',
   },
 
   whatsapp: {

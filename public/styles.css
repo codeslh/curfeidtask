@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Freelance Otomasyon — design system v3
+   Kalfa — design system v3
    Neutral zinc surfaces, one violet accent reserved for AI/brand moments,
    Geist type, floating app sheet on a soft canvas. Light default, dark via
    OS preference or [data-theme="dark"].
@@ -139,7 +139,8 @@ img { max-width: 100%; }
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .25) inset, 0 6px 16px -4px rgba(124, 92, 255, .6);
 }
-.logo .i { width: 17px; height: 17px; }
+.logo .brand-glyph { width: 22px; height: 22px; }
+.wordmark { font-weight: 650; letter-spacing: -.045em; font-size: 17px; }
 .sb-text b { display: block; font-size: 14px; font-weight: 650; letter-spacing: -.02em; line-height: 1.2; }
 .sb-text small { display: block; font-size: 11.5px; color: var(--fg-3); line-height: 1.2; }
 .sb-search {
@@ -841,7 +842,11 @@ input[type="search"]::-webkit-search-cancel-button { display: none; }
   animation: drift 18s ease-in-out infinite alternate; }
 @keyframes drift { to { transform: translate3d(4%, -3%, 0) rotate(8deg) scale(1.08); } }
 .auth-art::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(11, 11, 16, .2), rgba(11, 11, 16, .65)); }
-.auth-brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.02em; }
+.auth-brand { display: flex; align-items: center; gap: 10px; }
+.auth-brand .logo { width: 38px; height: 38px; border-radius: 12px; }
+.auth-brand .logo .brand-glyph { width: 26px; height: 26px; }
+.auth-brand .wordmark { font-size: 24px; }
+.auth-tag { display: inline-block; font-size: 13px; font-weight: 500; color: rgba(244, 244, 246, .8); padding: 5px 12px; border-radius: 99px; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .16); margin-bottom: 18px; }
 .auth-copy { margin: auto 0; max-width: 520px; }
 .auth-copy h2 { font-size: 38px; line-height: 1.1; letter-spacing: -.04em; font-weight: 650; margin-bottom: 30px; }
 .auth-cards { display: grid; gap: 12px; }
@@ -855,6 +860,7 @@ input[type="search"]::-webkit-search-cancel-button { display: none; }
 .auth-main { display: grid; place-items: center; padding: 32px 20px; background: var(--surface); }
 .auth-panel { width: 100%; max-width: 380px; }
 .auth-head { margin-bottom: 28px; }
+.auth-mobile-brand { display: none; align-items: center; gap: 10px; margin-bottom: 32px; }
 .auth-head h1 { font-size: 26px; font-weight: 650; letter-spacing: -.035em; }
 .auth-head p { color: var(--fg-2); margin-top: 6px; }
 .auth-panel .btn.lg { width: 100%; margin-top: 4px; }
@@ -894,6 +900,7 @@ input[type="search"]::-webkit-search-cancel-button { display: none; }
   .inbox:not(.has-open) .inbox-thread { display: none; }
   .auth { grid-template-columns: minmax(0, 1fr); }
   .auth-art { display: none; }
+  .auth-mobile-brand { display: flex; }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .codes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -1,7 +1,7 @@
 {
-  "name": "freelance-otomasyon",
+  "name": "kalfa",
   "version": "0.1.0",
-  "description": "Freelancerlar için yapay zeka destekli CRM, satış asistanı ve otomatik proje üretim sistemi",
+  "description": "Kalfa — freelancerlar için yapay zeka destekli CRM, satış asistanı ve otomatik proje üretim sistemi",
   "type": "module",
   "private": true,
   "engines": {
