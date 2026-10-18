@@ -109,7 +109,7 @@ async function overpass(query) {
         method: 'POST',
         headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(60000),
+        signal: AbortSignal.timeout(35000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
@@ -122,16 +122,54 @@ async function overpass(query) {
       errors.push(`${new URL(url).hostname}: ${why(err)}`);
     }
   }
-  throw new Error(`OpenStreetMap sunucularına ulaşılamadı veya hepsi meşgul (${errors.join('; ')}). Birkaç dakika sonra tekrar deneyin ya da yarıçapı / kategori sayısını azaltın.`);
+  throw new Error(`OpenStreetMap sunucularına ulaşılamadı veya hepsi meşgul (${errors.join('; ')}). Birkaç dakika sonra tekrar deneyin ya da yarıçapı / kategori sayısını azaltın. Sorun sürerse haritada daha küçük bir alana tıklayarak tarayın.`);
+}
+
+const toRad = (d) => (d * Math.PI) / 180;
+export function distanceKm(a, b) {
+  const dLat = toRad(b.lat - a.lat); const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * A light Overpass query: one bounding box for the whole query and one regex filter per tag key
+ * (instead of a separate "around" search per category, which the free servers often time out on).
+ * Results outside the circle are dropped afterwards.
+ */
+export function osmQuery({ lat, lng, radiusKm, categories, limit }, keys = null) {
+  const byKey = {};
+  for (const c of categories) for (const [k, v] of CATEGORIES[c]?.osm || []) (byKey[k] ??= new Set()).add(v);
+  const dLat = radiusKm / 111.32;
+  const dLng = radiusKm / (111.32 * Math.cos(toRad(lat)));
+  const bbox = [lat - dLat, lng - dLng, lat + dLat, lng + dLng].map((x) => x.toFixed(6)).join(',');
+  const stmts = Object.entries(byKey).filter(([k]) => !keys || keys.includes(k)).flatMap(([k, vals]) => {
+    const f = `["${k}"~"^(${[...vals].join('|')})$"]["name"]`;
+    return [`node${f};`, `way${f};`];
+  });
+  return { keys: Object.keys(byKey), query: `[out:json][timeout:25][bbox:${bbox}];(${stmts.join('')});out tags center ${Math.max(limit * 4, 80)};` };
 }
 
 export async function fetchOsm({ lat, lng, radiusKm, categories, limit }) {
-  const r = Math.round(Math.min(radiusKm, 15) * 1000);
-  const filters = categories.flatMap((c) => (CATEGORIES[c]?.osm || []).map(([k, v]) => `nwr["${k}"="${v}"]["name"](around:${r},${lat},${lng});`));
-  if (!filters.length) throw new Error('En az bir kategori seçin');
-  const query = `[out:json][timeout:50];(${filters.join('')});out tags center ${Math.max(limit * 3, 60)};`;
-  const data = await overpass(query);
-  return (data.elements || []).map((el) => {
+  const params = { lat, lng, radiusKm: Math.min(radiusKm, 15), categories, limit };
+  const { keys, query } = osmQuery(params);
+  if (!keys.length) throw new Error('En az bir kategori seçin');
+  let elements;
+  try {
+    elements = (await overpass(query)).elements || [];
+  } catch (err) {
+    // Still too heavy for the busy servers: ask for one tag key at a time and keep what comes back.
+    if (keys.length < 2) throw err;
+    elements = [];
+    let ok = 0;
+    for (const k of keys) {
+      try { elements.push(...((await overpass(osmQuery(params, [k]).query)).elements || [])); ok++; } catch { /* try the next key */ }
+    }
+    if (!ok) throw err;
+  }
+  const center = { lat, lng };
+  const seen = new Set();
+  return elements.map((el) => {
     const t = el.tags || {};
     const addr = [t['addr:street'] && `${t['addr:street']} ${t['addr:housenumber'] || ''}`.trim(), t['addr:district'] || t['addr:suburb'], t['addr:city']].filter(Boolean).join(', ');
     return {
@@ -148,7 +186,11 @@ export async function fetchOsm({ lat, lng, radiusKm, categories, limit }) {
       raw: { opening_hours: t.opening_hours, cuisine: t.cuisine, brand: t.brand, operator: t.operator },
       chain: Boolean(t.brand || t['brand:wikidata']),
     };
-  }).filter((b) => b.name && b.lat && b.lng);
+  })
+    .filter((b) => b.name && b.lat && b.lng && !seen.has(b.source_id) && seen.add(b.source_id))
+    .map((b) => ({ ...b, distance: distanceKm(center, b) }))
+    .filter((b) => b.distance <= params.radiusKm)
+    .sort((a, b) => a.distance - b.distance);
 }
 
 export async function fetchGoogle({ lat, lng, radiusKm, categories, limit }) {

@@ -212,6 +212,15 @@ describe('bölge taraması', () => {
     outage.overpassMain = false; outage.overpassAll = false;
   });
 
+  test('hafif sorgu: tek kutu, anahtar başına tek filtre; çember dışı sonuçlar atılır', async () => {
+    const { query } = prospecting.osmQuery({ lat: 41, lng: 29, radiusKm: 2, categories: ['restaurant', 'cafe', 'dentist', 'hairdresser'], limit: 40 });
+    assert.match(query, /^\[out:json\]\[timeout:25\]\[bbox:40\.98\d+,28\.97\d+,41\.01\d+,29\.02\d+\];/);
+    assert.ok(!query.includes('around'));
+    assert.match(query, /node\["amenity"~"\^\(restaurant\|cafe\|dentist\)\$"\]\["name"\];/);
+    assert.match(query, /way\["healthcare"~"\^\(dentist\)\$"\]\["name"\];/);
+    assert.ok(Math.abs(prospecting.distanceKm({ lat: 41, lng: 29 }, { lat: 41.009, lng: 29 }) - 1) < 0.01);
+  });
+
   test('konum özelliği (Konumumu bul) tarayıcıda engellenmez', async () => {
     const res = await fetch(`http://127.0.0.1:${server.address().port}/`);
     assert.match(res.headers.get('permissions-policy'), /geolocation=\(self\)/);
