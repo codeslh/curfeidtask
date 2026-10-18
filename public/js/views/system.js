@@ -280,7 +280,7 @@ const SETTINGS = {
   scanner: ['İlanlar', 'target', 'Kategoriler, konum ve filtreler', [
     ['freelance_categories', 'Freelance işler — kategoriler (hiçbiri = hepsi)', 'categories'],
     ['job_categories', 'İş ilanları — kategoriler (hiçbiri = hepsi)', 'categories'],
-    ['job_locations', 'İş ilanları — konum (ör. İstanbul, Uzaktan; boş = her yer)', 'list'], ['job_max_age_days', 'İş ilanı en fazla kaç günlük olsun', 'number'],
+    ['job_turkey_only', 'İş ilanları — sadece Türkiye\'deki pozisyonlar (şehir ve çalışma türü: İş ilanları → Filtreler)', 'bool'], ['job_max_age_days', 'İş ilanı en fazla kaç günlük olsun', 'number'],
     ['extra_keywords', 'Ek kelimeler (isteğe bağlı; kategorilere ek olarak)', 'list'], ['exclude_keywords', 'Hariç kelimeler', 'list'],
     ['min_budget', 'Freelance: en düşük bütçe (ana para)', 'number'], ['max_budget', 'Freelance: en yüksek bütçe (0 = sınırsız)', 'number'], ['currencies', 'Freelance: para birimleri (boş = hepsi)', 'list'],
     ['max_age_hours', 'Freelance iş en fazla kaç saatlik olsun', 'number'], ['max_leads_per_scan', 'Kaynak başına en fazla ilan', 'number'],

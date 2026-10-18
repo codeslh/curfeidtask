@@ -16,7 +16,8 @@ Kalfa, freelancerlar için bir **müşteri bulma aracıdır**. Kendi bilgisayar�
 |---|---|
 | İki ayrı liste | **Freelance işler** (teklif verirsiniz) ve **İş ilanları** — sigortalı / maaşlı pozisyonlar (başvurursunuz); her birinin kendi kategorileri, durumları ve mesaj şablonu var |
 | İlan kaynakları | Freelance: Freelancer.com (açık API), R10.net, Hallederim. İş ilanı: Remotive (uzaktan işler, açık API), Kariyer.net, Secretcv, Yenibiris, Eleman.net (sayfa izleme). Her ikisi: RSS/Atom, herkese açık her ilan sayfası, "Kalfa'ya ekle" yer imi (Bionluk, Armut, Upwork, Fiverr, LinkedIn, Indeed, İŞKUR…), elle ilan ekleme |
-| Kategoriler | 22 hazır kategori; her biri Türkçe + İngilizce kelimeleri içinde taşır (ör. "E-ticaret": e-ticaret, shopify, woocommerce, ikas…). Kategori seçimi değişince mevcut ilanlar da yeniden elenir. İsteğe bağlı ek ve hariç kelimeler; iş ilanları için konum filtresi ("İstanbul, Uzaktan"), freelance için bütçe filtresi |
+| Kategoriler | 22 hazır kategori; her biri Türkçe + İngilizce kelimeleri içinde taşır (ör. "E-ticaret": e-ticaret, shopify, woocommerce, ikas…). Kategori seçimi değişince mevcut ilanlar da yeniden elenir. İsteğe bağlı ek ve hariç kelimeler; freelance için bütçe filtresi |
+| İş ilanı filtreleri | **Sadece Türkiye** (varsayılan açık), **şehir** (81 il; ilçe adlarından da tanır: Kadıköy → İstanbul, Bornova → İzmir) ve **çalışma türü** (tam zamanlı, yarı zamanlı, uzaktan, hibrit, staj, sözleşmeli). Şehri veya çalışma türünü yazmayan ilanlar elenmez; liste sayfasında şehir ve çalışma türüne göre hızlı süzme de var |
 | Çeviri | Yabancı dildeki ilanların (Freelancer.com, Upwork…) başlığı ve açıklaması otomatik Türkçeye çevrilir, orijinali de görünür; bu ilanlara İngilizce mesaj şablonu kullanılır. Ücretsiz MyMemory (anahtarsız), DeepL Free veya kendi LibreTranslate sunucunuz |
 | İlan takibi | Yeni → Yazıldı → Cevap verdi → Kazanıldı / Kaybedildi; notlar, CSV dışa aktarma |
 | Bölge taraması | OpenStreetMap (ücretsiz) veya Google Places; harita, site incelemesi, kural tabanlı puan, zincir marka eleme, mesaj taslağı; günlük gönderim sınırı, İPTAL yazanları kalıcı engelleme |
@@ -42,7 +43,7 @@ Kalfa, freelancerlar için bir **müşteri bulma aracıdır**. Kendi bilgisayar�
 
 | Site | Nasıl | Not |
 |---|---|---|
-| **Remotive** | Otomatik (açık API) | Yurt dışı şirketlerin uzaktan çalışılan ilanları; seçtiğiniz kategorilere göre gelir, Türkçeye çevrilir. Remotive'in kuralı gereği 6 saatte bir okunur. |
+| **Remotive** | Otomatik (açık API), varsayılan kapalı | Yurt dışı şirketlerin uzaktan çalışılan ilanları. "Sadece Türkiye" açıkken yalnızca konumu Türkiye olanlar listelenir; isterseniz Kaynaklar'dan açın. 6 saatte bir okunur. |
 | **Kariyer.net, Secretcv, Yenibiris, Eleman.net** | Sayfa izleme veya yer imi | Sitede kategori/şehir araması yapın, sonuç sayfasının adresini **Kaynaklar → Sayfa ekle** ile girin ve **Dene** ile kontrol edin. Sayfa okunamıyorsa (site botları engelliyorsa) ilanları yer imiyle kaydedin. Bu sitelerin yapısı benim tarafımdan doğrulanamadı. |
 | **LinkedIn, Indeed, İŞKUR** | Yer imi | Otomatik okumayı yasaklar veya giriş ister. İlanı açıp "Kalfa'ya ekle"ye tıklayın. |
 
@@ -95,7 +96,7 @@ Ardından tarayıcıda **http://localhost:3000** adresini açın:
 
 1. İlk açılışta yönetici hesabınızı oluşturun.
 2. **Ayarlar → İşletme**'den adınızı, telefonunuzu ve bildirim e-postanızı girin (mesaj imzasında kullanılır).
-3. **Freelance işler** ve **İş ilanları** sayfalarında **Kategoriler → Değiştir** ile hangi alanlarda ilan görmek istediğinizi seçin (iş ilanları için isterseniz şehir de yazın).
+3. **Freelance işler** ve **İş ilanları** sayfalarında **Kategoriler → Değiştir** ile hangi alanlarda ilan görmek istediğinizi seçin (iş ilanlarında **Filtreleri değiştir** ile şehir ve çalışma türü de seçebilirsiniz).
 4. **Kaynaklar** sayfasından izlemek istediğiniz ilan sayfalarını ekleyin ve "Kalfa'ya ekle" yer imini tarayıcınıza sürükleyin.
 5. **Bölge taraması** sayfasında semtinizi yazıp **Tara**'ya basın.
 

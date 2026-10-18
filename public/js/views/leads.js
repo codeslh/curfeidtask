@@ -1,6 +1,6 @@
 // Freelance işler (#/leads) ve sigortalı/maaşlı iş ilanları (#/vacancies) — aynı ekran, iki tür.
 import {
-  $, $$, GET, POST, PUT, act, ago, app, busy, confirmDialog, empty, esc, field, icon, liveFilter, modal, money, onSegment, pageHeader, pill, searchBox, segmented, toast,
+  $, $$, GET, POST, PUT, act, ago, app, busy, confirmDialog, empty, esc, field, icon, liveFilter, modal, money, onSegment, pageHeader, pill, searchBox, segmented, toast, toggle,
 } from '../core.js';
 
 const GROUPS = {
@@ -26,7 +26,8 @@ const KIND = {
 };
 
 const LANG = { en: 'İngilizce', de: 'Almanca', es: 'İspanyolca', fr: 'Fransızca', pt: 'Portekizce', it: 'İtalyanca', ru: 'Rusça', ar: 'Arapça' };
-const JOB_TYPE = { full_time: 'Tam zamanlı', part_time: 'Yarı zamanlı', contract: 'Sözleşmeli', freelance: 'Serbest', internship: 'Staj', other: 'Diğer' };
+const WORK = { full_time: 'Tam zamanlı', part_time: 'Yarı zamanlı', remote: 'Uzaktan', hybrid: 'Hibrit', internship: 'Staj', contract: 'Sözleşmeli / proje bazlı' };
+const workTags = (l) => (l.work_types || []).map((w) => `<span class="tag">${esc(WORK[w] || w)}</span>`).join('');
 const langTag = (l) => (l.foreign ? `<span class="tag lang" title="${esc(LANG[l.lang] || l.lang)} ilan${l.title_tr ? ` · orijinal başlık: ${esc(l.title)}` : ''}">${esc(String(l.lang).toUpperCase())}${l.title_tr ? ' → TR' : ''}</span>` : '');
 const googleTranslate = (text) => `https://translate.google.com/?sl=auto&tl=tr&op=translate&text=${encodeURIComponent(String(text).slice(0, 4500))}`;
 const statusPill = (l) => pill(l.status, KIND[l.kind === 'job' ? 'job' : 'freelance'].status[l.status]);
@@ -68,18 +69,47 @@ function parsePrefill(id) {
 }
 
 async function categoryDialog(d, kind) {
-  const r = await modal({
-    title: `${KIND[kind].title}: kategoriler`,
+  const f = d.filters || {};
+  const jobFilters = kind !== 'job' ? '' : `
+    <h3 class="dlg-section">${icon('map-pin', 'sm')} Konum</h3>
+    <div class="setting-row"><div><b>Sadece Türkiye'deki ilanlar</b><small class="muted">Yurt dışındaki pozisyonlar elenir.</small></div>${toggle('turkey_only', f.turkey_only)}</div>
+    <div class="city-picker">
+      <div class="row-between"><span class="small"><b id="cityCount">${f.cities.length || 'Tüm'}</b> şehir seçili <span class="muted">(hiçbiri = tüm Türkiye)</span></span>
+        <span class="row"><input id="citySearch" class="input-sm" placeholder="Şehir ara…" aria-label="Şehir ara"><button type="button" class="btn sm ghost" id="cityClear">Temizle</button></span></div>
+      <div class="choice-grid city-grid">${d.provinces.map((c) => `<label class="choice" data-city="${esc(c.toLocaleLowerCase('tr'))}"><input type="checkbox" name="city" value="${esc(c)}" ${f.cities.includes(c) ? 'checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
+    </div>
+    <h3 class="dlg-section">${icon('clock', 'sm')} Çalışma türü <span class="muted small">(hiçbiri = hepsi)</span></h3>
+    <div class="choice-grid tight">${Object.entries(d.work_type_labels).map(([k, label]) => `<label class="choice"><input type="checkbox" name="work" value="${k}" ${f.work_types.includes(k) ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}</div>
+    <p class="small muted">"Uzaktan" seçiliyse uzaktan çalışılan ilanlar şehir seçiminden bağımsız gelir. Şehri veya çalışma türü yazmayan ilanlar elenmez.</p>`;
+  const result = modal({
+    title: `${KIND[kind].title}: ${kind === 'job' ? 'filtreler' : 'kategoriler'}`,
     description: 'Hangi alanlardaki ilanları görmek istiyorsunuz? Kalfa her kategori için Türkçe ve İngilizce kelimeleri kendisi tanır. Hiçbirini seçmezseniz tüm ilanlar gelir.',
     submitText: 'Kaydet', wide: true,
-    body: `<div class="choice-grid tight">${d.categories.map((c) => `<label class="choice"><input type="checkbox" name="cat" value="${c.key}" ${d.selected.includes(c.key) ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div>
-      ${kind === 'job' ? `<label class="field" style="margin-top:14px">Konum (isteğe bağlı)<input name="locations" value="${esc((d.locations || []).join(', '))}" placeholder="ör. İstanbul, Ankara, Uzaktan"><small>Virgülle ayırın. "Uzaktan" yazarsanız remote ilanlar da gelir. Boş bırakırsanız her yer.</small></label>` : ''}`,
+    body: `<h3 class="dlg-section">${icon('layout-grid', 'sm')} Kategoriler</h3>
+      <div class="choice-grid tight">${d.categories.map((c) => `<label class="choice"><input type="checkbox" name="cat" value="${c.key}" ${d.selected.includes(c.key) ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div>
+      ${jobFilters}`,
     onSubmit: (_d, form) => PUT('/leads/categories', {
       kind,
       categories: $$('input[name=cat]:checked', form).map((x) => x.value),
-      ...(kind === 'job' ? { locations: form.elements.locations.value.split(',').map((x) => x.trim()).filter(Boolean) } : {}),
+      ...(kind === 'job' ? {
+        turkey_only: form.elements.turkey_only.checked,
+        cities: $$('input[name=city]:checked', form).map((x) => x.value),
+        work_types: $$('input[name=work]:checked', form).map((x) => x.value),
+      } : {}),
     }),
   });
+  const dlg = [...document.querySelectorAll('.dialog')].at(-1);
+  if (kind === 'job' && dlg) {
+    const recount = () => { $('#cityCount', dlg).textContent = $$('input[name=city]:checked', dlg).length || 'Tüm'; };
+    $('#citySearch', dlg).oninput = (e) => {
+      const q = e.target.value.toLocaleLowerCase('tr').trim();
+      $$('[data-city]', dlg).forEach((el) => { el.hidden = Boolean(q) && !el.dataset.city.includes(q); });
+    };
+    $('#citySearch', dlg).onkeydown = (e) => { if (e.key === 'Enter') e.preventDefault(); };
+    $('#cityClear', dlg).onclick = () => { $$('input[name=city]', dlg).forEach((x) => { x.checked = false; }); recount(); };
+    $$('input[name=city]', dlg).forEach((x) => { x.onchange = recount; });
+  }
+  const r = await result;
   if (r) { toast(`Kaydedildi · ${r.matched} ilan uygun, ${r.filtered} elendi`); app.route(); }
 }
 
@@ -93,12 +123,18 @@ export async function viewLeads(main, id, kind = 'freelance') {
   const filter = sessionStorage.getItem(`leadFilter:${kind}`) || 'new';
   const platformFilter = sessionStorage.getItem(`leadPlatform:${kind}`) || '';
   const catFilter = sessionStorage.getItem(`leadCat:${kind}`) || '';
+  const cityFilter = sessionStorage.getItem(`leadCity:${kind}`) || '';
+  const workFilter = sessionStorage.getItem(`leadWork:${kind}`) || '';
   const d = await GET(`/leads?kind=${kind}${filter === 'filtered_out' ? '&status=filtered_out' : ''}`);
   const count = (key) => GROUPS[key].reduce((a, st) => a + (d.counts[st] || 0), 0);
   const platforms = [...new Set(d.leads.map((l) => l.platform))];
   const cats = [...new Set(d.leads.map((l) => l.category).filter(Boolean))];
   const catLabel = (k) => d.categories.find((c) => c.key === k)?.label || (k === 'custom' ? 'Kendi kelimelerim' : k);
-  const list = d.leads.filter((l) => GROUPS[filter].includes(l.status) && (!platformFilter || l.platform === platformFilter) && (!catFilter || l.category === catFilter));
+  const cities = [...new Set(d.leads.map((l) => l.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
+  const works = [...new Set(d.leads.flatMap((l) => l.work_types))];
+  const list = d.leads.filter((l) => GROUPS[filter].includes(l.status) && (!platformFilter || l.platform === platformFilter) && (!catFilter || l.category === catFilter)
+    && (!cityFilter || (cityFilter === '-' ? !l.city : l.city === cityFilter)) && (!workFilter || l.work_types.includes(workFilter)));
+  const f = d.filters;
 
   main.innerHTML = `${pageHeader({
     title: K.title,
@@ -109,12 +145,16 @@ export async function viewLeads(main, id, kind = 'freelance') {
   <div class="cat-bar">
     <span class="cat-bar-label">${icon('layout-grid', 'sm')} Kategoriler</span>
     ${d.selected.length ? d.selected.map((k) => `<span class="chip-static">${esc(catLabel(k))}</span>`).join('') : '<span class="muted small">Tümü (kategori seçilmedi)</span>'}
-    ${kind === 'job' && d.locations.length ? `<span class="chip-static">${icon('map-pin', 'xs')} ${esc(d.locations.join(', '))}</span>` : ''}
-    <button class="btn sm" id="pickCats">${icon('pencil', 'xs')} Değiştir</button>
+    ${f ? `${f.turkey_only ? `<span class="chip-static">${icon('map-pin', 'xs')} Sadece Türkiye</span>` : ''}
+      <span class="chip-static">${icon('map-pin', 'xs')} ${f.cities.length ? esc(f.cities.length > 3 ? `${f.cities.slice(0, 3).join(', ')} +${f.cities.length - 3}` : f.cities.join(', ')) : 'Tüm şehirler'}</span>
+      ${f.work_types.length ? `<span class="chip-static">${icon('clock', 'xs')} ${esc(f.work_types.map((w) => WORK[w]).join(', '))}</span>` : ''}` : ''}
+    <button class="btn sm" id="pickCats">${icon('pencil', 'xs')} ${kind === 'job' ? 'Filtreleri değiştir' : 'Değiştir'}</button>
   </div>
   <div class="toolbar">
     ${segmented('lead', Object.entries(K.tabs).map(([k, label]) => [k, label, count(k)]), filter)}
     <span class="spacer"></span>
+ ${kind === 'job' && cities.length ? `<select id="city" class="input-sm" aria-label="Şehir"><option value="">Tüm şehirler</option>${cities.map((c) => `<option ${c === cityFilter ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="-" ${cityFilter === '-' ? 'selected' : ''}>Şehir belirtilmemiş</option></select>` : ''}
+    ${kind === 'job' && works.length ? `<select id="work" class="input-sm" aria-label="Çalışma türü"><option value="">Tüm çalışma türleri</option>${works.map((w) => `<option value="${w}" ${w === workFilter ? 'selected' : ''}>${esc(WORK[w] || w)}</option>`).join('')}</select>` : ''}
     ${cats.length > 1 ? `<select id="cat" class="input-sm" aria-label="Kategori"><option value="">Tüm kategoriler</option>${cats.map((c) => `<option value="${esc(c)}" ${c === catFilter ? 'selected' : ''}>${esc(catLabel(c))}</option>`).join('')}</select>` : ''}
     ${platforms.length > 1 ? `<select id="plat" class="input-sm" aria-label="Site"><option value="">Tüm siteler</option>${platforms.map((p) => `<option value="${esc(p)}" ${p === platformFilter ? 'selected' : ''}>${esc(d.platforms[p]?.label || p)}</option>`).join('')}</select>` : ''}
     ${searchBox('İlan ara…')}
@@ -123,9 +163,9 @@ export async function viewLeads(main, id, kind = 'freelance') {
     <article class="lead-card ${l.status}" data-open="${l.id}" tabindex="0">
       <div class="lc-top"><span class="platform">${icon('globe', 'xs')} ${esc(l.platform_label)}</span>${l.score != null ? `<span class="score-dot" title="Uygunluk puanı">${l.score}</span>` : ''}${statusPill(l)}<time>${ago(l.created_at)}</time></div>
       <h3>${langTag(l)}${esc(l.title_tr || l.title)}</h3>
-      ${kind === 'job' && (l.company || l.location) ? `<div class="lc-meta">${l.company ? `${icon('briefcase', 'xs')} ${esc(l.company)}` : ''}${l.location ? `<span>${icon('map-pin', 'xs')} ${esc(l.location)}</span>` : ''}${l.job_type ? `<span>${esc(JOB_TYPE[l.job_type] || l.job_type)}</span>` : ''}</div>` : ''}
+      ${kind === 'job' ? `<div class="lc-meta">${l.company ? `<span>${icon('briefcase', 'xs')} ${esc(l.company)}</span>` : ''}<span>${icon('map-pin', 'xs')} ${esc(l.city || l.location || 'Şehir belirtilmemiş')}</span></div>` : ''}
       ${(l.description_tr || l.description) ? `<p class="lc-desc">${esc((l.description_tr || l.description).slice(0, 220))}${(l.description_tr || l.description).length > 220 ? '…' : ''}</p>` : ''}
-      <div class="lc-skills">${l.category ? `<span class="tag accent">${esc(l.category_label)}</span>` : ''}${l.skills ? l.skills.split(',').filter(Boolean).slice(0, 3).map((s) => `<span class="tag">${esc(s.trim())}</span>`).join('') : ''}</div>
+      <div class="lc-skills">${l.category ? `<span class="tag accent">${esc(l.category_label)}</span>` : ''}${kind === 'job' ? workTags(l) : ''}${l.skills ? l.skills.split(',').filter(Boolean).slice(0, kind === 'job' ? 2 : 3).map((s) => `<span class="tag">${esc(s.trim())}</span>`).join('') : ''}</div>
       ${l.filter_reason ? `<div class="lc-reason">${icon('filter', 'xs')} ${esc(l.filter_reason)}</div>` : ''}
       <div class="lc-foot">
         <div class="lc-budget">${payText(l) ? `<small>${kind === 'job' ? 'Maaş' : 'Bütçe'}</small><b>${esc(payText(l))}</b>` : `<small>${kind === 'job' ? 'Maaş' : 'Bütçe'} belirtilmemiş</small>`}</div>
@@ -145,6 +185,8 @@ export async function viewLeads(main, id, kind = 'freelance') {
   onSegment(main, 'lead', (v) => { sessionStorage.setItem(`leadFilter:${kind}`, v); app.route(); });
   $('#plat')?.addEventListener('change', (e) => { sessionStorage.setItem(`leadPlatform:${kind}`, e.target.value); app.route(); });
   $('#cat')?.addEventListener('change', (e) => { sessionStorage.setItem(`leadCat:${kind}`, e.target.value); app.route(); });
+  $('#city')?.addEventListener('change', (e) => { sessionStorage.setItem(`leadCity:${kind}`, e.target.value); app.route(); });
+  $('#work')?.addEventListener('change', (e) => { sessionStorage.setItem(`leadWork:${kind}`, e.target.value); app.route(); });
   $('#pickCats').onclick = () => categoryDialog(d, kind);
   liveFilter($('#q'), '.lead-card', main);
   $('#scan').onclick = (e) => busy(e.currentTarget, async () => {
@@ -177,9 +219,9 @@ async function openLead(leadId, smtp, kind) {
   const result = modal({
     drawer: true, hideFooter: true,
     title: esc(l.title_tr || l.title),
-    description: [esc(l.platform_label), isJob && l.company ? esc(l.company) : '', isJob && l.location ? esc(l.location) : '', ago(l.created_at), payText(l) ? esc(payText(l)) : ''].filter(Boolean).join(' · '),
+    description: [esc(l.platform_label), isJob && l.company ? esc(l.company) : '', isJob ? esc(l.city || l.location || '') : '', ago(l.created_at), payText(l) ? esc(payText(l)) : ''].filter(Boolean).join(' · '),
     body: `<div class="pd">
-      <div class="row wrap">${statusPill(l)}${l.category_labels.map((c) => `<span class="tag accent">${esc(c)}</span>`).join('')}${l.score != null ? `<span class="tag">Uygunluk ${l.score}/100</span>` : ''}${isJob && l.job_type ? `<span class="tag">${esc(JOB_TYPE[l.job_type] || l.job_type)}</span>` : ''}${l.filter_reason ? `<span class="tag">${icon('filter', 'xs')} ${esc(l.filter_reason)}</span>` : ''}</div>
+      <div class="row wrap">${statusPill(l)}${l.category_labels.map((c) => `<span class="tag accent">${esc(c)}</span>`).join('')}${l.score != null ? `<span class="tag">Uygunluk ${l.score}/100</span>` : ''}${isJob ? workTags(l) : ''}${l.filter_reason ? `<span class="tag">${icon('filter', 'xs')} ${esc(l.filter_reason)}</span>` : ''}</div>
       ${l.url ? `<a class="btn primary block" href="${esc(l.url)}" target="_blank" rel="noopener">${icon('external-link', 'sm')} ${isJob ? 'İlana git ve başvur' : 'İlana git'} · ${esc(l.platform_label)}</a>` : ''}
       ${l.foreign ? `<div class="translate-bar">${icon('globe', 'sm')}<span>${l.title_tr ? `${esc(LANG[l.lang] || l.lang)} ilan, Türkçeye çevrildi.` : `${esc(LANG[l.lang] || l.lang)} ilan, henüz çevrilmedi.`}</span>
         <button type="button" class="btn sm" id="translate">${icon('refresh-cw', 'xs')} ${l.title_tr ? 'Yeniden çevir' : 'Türkçeye çevir'}</button>

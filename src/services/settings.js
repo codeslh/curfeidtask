@@ -18,7 +18,9 @@ export const DEFAULTS = {
     job_categories: ['web', 'software'],
     extra_keywords: [],                       // optional own terms, matched in addition to the categories
     exclude_keywords: ['kripto', 'crypto', 'bahis', 'casino'],
-    job_locations: [],                        // e.g. İstanbul, Uzaktan; empty = anywhere
+    job_turkey_only: true,                    // job listings: only positions in Turkey
+    job_cities: [],                           // provinces (services/turkey.js); empty = all of Turkey
+    job_work_types: [],                       // full_time, part_time, remote, hybrid, internship, contract; empty = all
     job_max_age_days: 30,
     min_budget: 0,
     max_budget: 0,                            // 0 = no upper bound

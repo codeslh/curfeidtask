@@ -8,7 +8,7 @@
 export const CATEGORIES = {
   web: {
     label: 'Web sitesi / web tasarım', query: 'website', remotive: 'software-dev',
-    terms: ['web sitesi', 'web site', 'websitesi', 'website', 'web tasarım', 'web tasarımı', 'web design', 'web designer', 'landing page', 'kurumsal site', 'html', 'css', 'frontend', 'front-end', 'front end', 'web developer', 'web geliştirici', 'web yazılım*', 'webflow', 'wix'],
+    terms: ['web sitesi', 'web site', 'websitesi', 'website', 'web tasarım', 'web tasarımı', 'web design', 'web designer', 'web tasarımcı', 'web tasarımcısı', 'web uzman*', 'landing page', 'kurumsal site', 'html', 'css', 'frontend', 'front-end', 'front end', 'web developer', 'web geliştirici', 'web yazılım*', 'webflow', 'wix'],
   },
   ecommerce: {
     label: 'E-ticaret', query: 'ecommerce', remotive: 'software-dev',
@@ -28,7 +28,7 @@ export const CATEGORIES = {
   },
   design: {
     label: 'Grafik / logo tasarım', query: 'logo design', remotive: 'design',
-    terms: ['logo', 'grafik', 'grafiker', 'graphic', 'graphic design*', 'kurumsal kimlik', 'branding', 'marka kimliği', 'afiş', 'poster', 'broşür', 'brochure', 'katalog tasarım*', 'ambalaj', 'packaging', 'illüstrasyon', 'illustrat*', 'photoshop', 'illustrator', 'canva', 'banner', 'kartvizit'],
+    terms: ['logo', 'grafik', 'grafiker', 'grafik tasarımcı', 'tasarımcı', 'graphic', 'graphic design*', 'kurumsal kimlik', 'branding', 'marka kimliği', 'afiş', 'poster', 'broşür', 'brochure', 'katalog tasarım*', 'ambalaj', 'packaging', 'illüstrasyon', 'illustrat*', 'photoshop', 'illustrator', 'canva', 'banner', 'kartvizit'],
   },
   uiux: {
     label: 'UI / UX tasarım', query: 'ui ux design', remotive: 'design',

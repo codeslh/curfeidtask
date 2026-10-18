@@ -12,6 +12,7 @@ import * as security from '../services/security.js';
 import { getSettings, saveSection } from '../services/settings.js';
 import * as sources from '../services/sources.js';
 import { CATEGORIES, categoryLabel } from '../services/categories.js';
+import { PROVINCES, WORK_TYPES } from '../services/turkey.js';
 import * as translate from '../services/translate.js';
 import { whatsappApiReady } from '../services/whatsapp.js';
 import { asyncRoute, auditTrail, authorize, clientInfo, requireAuth } from './util.js';
@@ -249,6 +250,7 @@ const leadRow = (l) => {
     foreign: translate.needsTranslation(l.lang),
     category_label: l.category ? categoryLabel(l.category) : null,
     category_labels: (l.categories || '').split(',').filter(Boolean).map(categoryLabel),
+    work_types: (l.work_types || '').split(',').filter(Boolean),
   };
 };
 router.get('/leads', (req, res) => {
@@ -262,7 +264,9 @@ router.get('/leads', (req, res) => {
     counts: Object.fromEntries(all('SELECT status, COUNT(*) AS n FROM leads WHERE kind = ? GROUP BY status', kind).map((r) => [r.status, r.n])),
     categories: categoryList(),
     selected: kind === 'job' ? scanner.job_categories : scanner.freelance_categories,
-    locations: scanner.job_locations,
+    filters: kind === 'job' ? { turkey_only: scanner.job_turkey_only, cities: scanner.job_cities, work_types: scanner.job_work_types } : null,
+    provinces: PROVINCES,
+    work_type_labels: WORK_TYPES,
     smtp: Boolean(config.smtp.host),
     scanning: sources.isScanning(),
     platforms: sources.PLATFORMS,
@@ -274,7 +278,11 @@ router.put('/leads/categories', (req, res) => {
   if (!kind) return res.status(400).json({ error: 'Tür freelance veya job olmalı' });
   const cats = [].concat(req.body?.categories || []).filter((c) => CATEGORIES[c]);
   const patch = { [kind === 'job' ? 'job_categories' : 'freelance_categories']: cats };
-  if (kind === 'job' && req.body?.locations !== undefined) patch.job_locations = [].concat(req.body.locations).map((x) => String(x).trim()).filter(Boolean);
+  if (kind === 'job') {
+    if (req.body?.cities !== undefined) patch.job_cities = [].concat(req.body.cities).filter((c) => PROVINCES.includes(c));
+    if (req.body?.work_types !== undefined) patch.job_work_types = [].concat(req.body.work_types).filter((w) => WORK_TYPES[w]);
+    if (req.body?.turkey_only !== undefined) patch.job_turkey_only = Boolean(req.body.turkey_only);
+  }
   saveSection('scanner', patch);
   res.json({ ok: true, ...sources.refilterLeads() });
 });
@@ -386,7 +394,7 @@ router.get('/backup', asyncRoute(async (req, res) => {
 }));
 
 const EXPORTS = {
-  leads: `SELECT id, kind, platform, category, title, title_tr, company, location, status, score, budget_min, budget_max, currency, salary, url, client_name, contact, created_at, contacted_at, notes FROM leads WHERE status != 'filtered_out' ORDER BY kind, id`,
+  leads: `SELECT id, kind, platform, category, title, title_tr, company, location, city, work_types, status, score, budget_min, budget_max, currency, salary, url, client_name, contact, created_at, contacted_at, notes FROM leads WHERE status != 'filtered_out' ORDER BY kind, id`,
   prospects: `SELECT id, name, category, address, phone, email, website, score, status, channel, created_at, contacted_at FROM prospects ORDER BY id`,
   customers: 'SELECT id, name, email, phone, platform, notes, created_at FROM customers ORDER BY id',
 };

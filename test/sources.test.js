@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { after, before, describe, test } from 'node:test';
 import { client, tmp } from './helpers.js';
 
-const { openDb, get, all } = await import('../src/db.js');
+const { openDb, get, all, run } = await import('../src/db.js');
 const { createApp } = await import('../src/app.js');
 const { saveSection } = await import('../src/services/settings.js');
 const { setFetch, setLookup } = await import('../src/services/http.js');
@@ -63,10 +63,11 @@ let admin;
 before(async () => {
   openDb();
   sources.seedSources();
+  run(`UPDATE sources SET enabled = 1 WHERE kind = 'remotive_api'`);
   setFetch(fakeFetch);
   setLookup(async (host) => [{ address: host === 'intranet.test' ? '10.0.0.5' : '93.184.216.34' }]);
   saveSection('business', { name: 'Kalfa Test', owner_name: 'Deniz' });
-  saveSection('scanner', { freelance_categories: ['web', 'wordpress'], job_categories: ['software'], exclude_keywords: ['kripto', 'crypto'] });
+  saveSection('scanner', { freelance_categories: ['web', 'wordpress'], job_categories: ['software'], job_turkey_only: false, exclude_keywords: ['kripto', 'crypto'] });
   server = createApp().listen(0);
   admin = client(`http://127.0.0.1:${server.address().port}`);
   await admin.req('POST', '/api/auth/setup', { email: 'admin@test.com', password: 'GucluSifre123' });
@@ -89,6 +90,20 @@ describe('kategoriler', () => {
     assert.equal(classify({ title: 'Flutter ile mobil uygulama' }).best, 'mobile');
     assert.equal(classify({ title: 'Muhasebe elemanı aranıyor' }).best, 'finance');
     assert.equal(classify({ title: 'Copywriter for blog posts' }).best, 'writing');
+  });
+
+  test('il ve çalışma türü tanıma', async () => {
+    const { detectCity, detectWorkTypes, inTurkey } = await import('../src/services/turkey.js');
+    assert.equal(detectCity('Ataşehir, İstanbul'), 'İstanbul');
+    assert.equal(detectCity('IZMIR'), 'İzmir');
+    assert.equal(detectCity('Bornova'), 'İzmir');
+    assert.equal(detectCity('Eskisehir'), 'Eskişehir');
+    assert.equal(detectCity('London, UK'), null);
+    assert.deepEqual(detectWorkTypes({ title: 'Part-time remote designer' }).sort(), ['part_time', 'remote']);
+    assert.ok(inTurkey({ location: 'Remote - Turkey' }));
+    assert.ok(!inTurkey({ location: 'Worldwide' }));
+    assert.ok(inTurkey({ title: 'Muhasebe elemanı', description: '', lang: 'tr' }));
+    assert.ok(inTurkey({ title: 'Developer', description: '', platformCountry: 'tr' }));
   });
 
   test('kelimeler bütün olarak eşleşir (build içindeki "ui" UI/UX sayılmaz)', () => {
@@ -229,14 +244,40 @@ describe('ilan kaynakları', () => {
     assert.equal((await admin.req('PUT', '/api/leads/categories', { kind: 'x', categories: [] })).status, 400);
   });
 
-  test('iş ilanlarında konum filtresi; "Uzaktan" remote ilanları da kabul eder', async () => {
+  test('iş ilanları: sadece Türkiye, şehir ve çalışma türü filtresi', async () => {
     const job = () => lead('Senior Backend Developer (Node.js)');
-    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], locations: ['İstanbul'] });
-    assert.equal(job().status, 'filtered_out');
-    assert.match(job().filter_reason, /Konum/);
-    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], locations: ['İstanbul', 'Uzaktan'] });
+    // Remotive listing is "Worldwide" → not in Turkey → out once Turkey-only is on.
     assert.equal(job().status, 'new');
-    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], locations: [] });
+    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], turkey_only: true });
+    assert.equal(job().status, 'filtered_out');
+    assert.match(job().filter_reason, /Türkiye dışı/);
+    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], turkey_only: false });
+    assert.equal(job().status, 'new');
+    assert.equal(job().in_turkey, 0);
+    assert.deepEqual(job().work_types.split(','), ['full_time', 'remote']);
+    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], turkey_only: false, work_types: ['part_time'] });
+    assert.match(job().filter_reason, /Çalışma türü/);
+    await admin.req('PUT', '/api/leads/categories', { kind: 'job', categories: ['software'], turkey_only: true, work_types: [], cities: ['Ankara', 'Bilinmeyen'] });
+    const s = (await admin.req('GET', '/api/leads?kind=job')).data;
+    assert.deepEqual(s.filters, { turkey_only: true, cities: ['Ankara'], work_types: [] });
+    assert.equal(s.provinces.length, 81);
+    assert.equal(job().status, 'filtered_out');
+  });
+
+  test('Türk iş ilanı: şehir ve çalışma türü metinden bulunur, şehir filtresi uygulanır', async () => {
+    const add = (body) => admin.req('POST', '/api/leads', body).then((r) => get('SELECT * FROM leads WHERE id = ?', r.data.id));
+    const a = await add({ url: 'https://www.kariyer.net/is-ilani/1', title: 'Yazılım Geliştirme Uzmanı', description: 'Kadıköy ofisimizde hibrit çalışacak, tam zamanlı Node.js geliştirici arıyoruz.' });
+    assert.equal(a.kind, 'job');
+    assert.equal(a.city, 'İstanbul');
+    assert.equal(a.in_turkey, 1);
+    assert.deepEqual(a.work_types.split(',').sort(), ['full_time', 'hybrid']);
+    const b = await add({ url: 'https://www.linkedin.com/jobs/view/77', title: 'Backend Developer', description: 'Office in Berlin.', location: 'Berlin, Germany' });
+    assert.equal(b.in_turkey, 0);
+    assert.equal(b.city, null);
+    const c = await add({ url: 'https://www.linkedin.com/jobs/view/78', title: 'Stajyer yazılım geliştirici - Ankara', description: 'Uzun dönem stajyer arıyoruz.' });
+    assert.equal(c.city, 'Ankara');
+    assert.equal(c.in_turkey, 1);
+    assert.ok(c.work_types.includes('internship'));
   });
 
   test('yabancı ilana İngilizce mesaj hazırlanır', async () => {

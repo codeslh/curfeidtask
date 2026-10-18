@@ -234,6 +234,9 @@ const COLUMNS = {
     categories: 'TEXT',                  // every matching category, comma separated
     company: 'TEXT', location: 'TEXT', job_type: 'TEXT', salary: 'TEXT',
     remote: 'INTEGER NOT NULL DEFAULT 0',
+    city: 'TEXT',                        // detected Turkish province (job listings)
+    work_types: 'TEXT',                  // full_time,part_time,remote,hybrid,internship,contract
+    in_turkey: 'INTEGER',                // 1 / 0 / NULL (unknown, freelance)
   },
   sources: {
     lead_kind: "TEXT NOT NULL DEFAULT 'freelance'", // which list the source feeds: freelance | job

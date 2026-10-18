@@ -13,6 +13,7 @@ import { notifyAdmin, sendMail } from './notify.js';
 import { getSection, toBase } from './settings.js';
 import { render, template } from './templates.js';
 import { detectLanguage, translatePending } from './translate.js';
+import { detectCity, detectWorkTypes, inTurkey, WORK_TYPES } from './turkey.js';
 
 /**
  * Known platforms. `mode` says how leads get in:
@@ -36,20 +37,20 @@ export const PLATFORMS = {
   fiverr: { kind: 'freelance', home: 'https://www.fiverr.com/', label: 'Fiverr', hosts: ['fiverr.com'], mode: 'bookmark', help: 'Alıcı istekleri giriş gerektirir; yer imiyle kaydedin.' },
   // Sigortalı / maaşlı iş ilanları
   remotive: { kind: 'job', home: 'https://remotive.com/', label: 'Remotive (uzaktan işler)', hosts: ['remotive.com'], mode: 'api',
-    help: 'Yurt dışı şirketlerin uzaktan (remote) çalışılan iş ilanları. Herkese açık API ile seçtiğiniz kategorilere göre otomatik taranır; ilanlar Türkçeye çevrilir. Remotive\'in kuralı gereği en fazla 6 saatte bir okunur.' },
-  kariyer: { kind: 'job', home: 'https://www.kariyer.net/', label: 'Kariyer.net', hosts: ['kariyer.net'], mode: 'page',
+    help: 'Yurt dışı şirketlerin uzaktan çalışılan ilanları (API ile otomatik). "Sadece Türkiye" açıkken yalnızca konumu Türkiye olan ilanlar listelenir, bu yüzden varsayılan olarak kapalıdır. En fazla 6 saatte bir okunur.' },
+  kariyer: { kind: 'job', country: 'tr', home: 'https://www.kariyer.net/', label: 'Kariyer.net', hosts: ['kariyer.net'], mode: 'page',
     help: 'Kariyer.net\'te kategorinize ve şehrinize göre arama yapın, sonuç sayfasının adresini "Sayfa ekle" ile ekleyin ve "Dene" ile kontrol edin. Sayfa okunamazsa ilanları "Kalfa\'ya ekle" yer imiyle kaydedin.' },
-  secretcv: { kind: 'job', home: 'https://www.secretcv.com/', label: 'Secretcv', hosts: ['secretcv.com'], mode: 'page',
+  secretcv: { kind: 'job', country: 'tr', home: 'https://www.secretcv.com/', label: 'Secretcv', hosts: ['secretcv.com'], mode: 'page',
     help: 'Arama sonuç sayfasının adresini "Sayfa ekle" ile ekleyin; okunamazsa yer imini kullanın.' },
-  yenibiris: { kind: 'job', home: 'https://www.yenibiris.com/', label: 'Yenibiris', hosts: ['yenibiris.com'], mode: 'page',
+  yenibiris: { kind: 'job', country: 'tr', home: 'https://www.yenibiris.com/', label: 'Yenibiris', hosts: ['yenibiris.com'], mode: 'page',
     help: 'Arama sonuç sayfasının adresini "Sayfa ekle" ile ekleyin; okunamazsa yer imini kullanın.' },
-  eleman: { kind: 'job', home: 'https://www.eleman.net/', label: 'Eleman.net', hosts: ['eleman.net'], mode: 'page',
+  eleman: { kind: 'job', country: 'tr', home: 'https://www.eleman.net/', label: 'Eleman.net', hosts: ['eleman.net'], mode: 'page',
     help: 'Arama sonuç sayfasının adresini "Sayfa ekle" ile ekleyin; okunamazsa yer imini kullanın.' },
   linkedin: { kind: 'job', home: 'https://www.linkedin.com/jobs/', label: 'LinkedIn', hosts: ['linkedin.com'], mode: 'bookmark',
     help: 'LinkedIn otomatik okumayı yasaklar ve giriş ister. İlanı açıp "Kalfa\'ya ekle" yer imine tıklayın.' },
   indeed: { kind: 'job', home: 'https://tr.indeed.com/', label: 'Indeed', hosts: ['indeed.com'], mode: 'bookmark',
     help: 'Indeed otomatik okumayı engeller. İlanı açıp "Kalfa\'ya ekle" yer imine tıklayın.' },
-  iskur: { kind: 'job', home: 'https://esube.iskur.gov.tr/', label: 'İŞKUR', hosts: ['iskur.gov.tr'], mode: 'bookmark',
+  iskur: { kind: 'job', country: 'tr', home: 'https://esube.iskur.gov.tr/', label: 'İŞKUR', hosts: ['iskur.gov.tr'], mode: 'bookmark',
     help: 'İlan arama giriş gerektirebilir; ilanları yer imiyle kaydedin.' },
   // Genel
   rss: { label: 'RSS', hosts: [], mode: 'page', help: 'RSS/Atom beslemesi yayınlayan her ilan sitesi eklenebilir.' },
@@ -87,7 +88,16 @@ export function extractContact(text = '') {
 
 const lower = (s) => String(s || '').toLocaleLowerCase('tr');
 const selectedCategories = (scope, kind) => (kind === 'job' ? scope.job_categories : scope.freelance_categories) || [];
-const REMOTE_TERMS = compileTerms(['remote', 'uzaktan', 'home office', 'evden', 'anywhere', 'worldwide']);
+
+/** Where and how a job is done: province, work types and whether it is in Turkey. */
+export function jobInfo(raw, platform, lang = detectLanguage(`${raw.title}\n${raw.description || ''}`)) {
+  const work = detectWorkTypes(raw);
+  return {
+    city: detectCity(raw.location, raw.title, String(raw.description || '').slice(0, 3000)),
+    work_types: work,
+    in_turkey: inTurkey({ ...raw, lang, platformCountry: PLATFORMS[platform]?.country }),
+  };
+}
 
 /** Categories (and own extra keywords) a listing falls into. */
 export function categorize(lead, scope) {
@@ -119,12 +129,16 @@ export function filterLead(lead, scope, kind = kindOf(lead.kind)) {
       const bottomBase = toBase(lead.budget_min ?? top, lead.currency);
       if (scope.max_budget > 0 && bottomBase > scope.max_budget) return 'Bütçe üst sınırın üstünde';
     }
-  } else if ((scope.job_locations || []).length) {
-    const where = `${lead.location || ''} ${lead.title}`;
-    const wantsRemote = scope.job_locations.some((l) => hits(l, REMOTE_TERMS));
-    const isRemote = lead.remote || hits(where, REMOTE_TERMS);
-    const cityMatch = hits(where, compileTerms(scope.job_locations.filter((l) => !hits(l, REMOTE_TERMS))));
-    if ((lead.location || isRemote) && !cityMatch && !(wantsRemote && isRemote)) return `Konum uymuyor (${lead.location || 'belirtilmemiş'})`;
+  } else {
+    if (scope.job_turkey_only && lead.in_turkey === false) return `Türkiye dışı ilan${lead.location ? ` (${lead.location})` : ''}`;
+    const works = lead.work_types || [];
+    const wantWork = scope.job_work_types || [];
+    if (wantWork.length && works.length && !works.some((w) => wantWork.includes(w))) {
+      return `Çalışma türü uymuyor (${works.map((w) => WORK_TYPES[w]).join(', ')})`;
+    }
+    // A remote job fits any city when you also asked for remote work.
+    const remoteOk = works.includes('remote') && wantWork.includes('remote');
+    if ((scope.job_cities || []).length && lead.city && !scope.job_cities.includes(lead.city) && !remoteOk) return `Şehir uymuyor (${lead.city})`;
   }
   const maxAge = kind === 'job' ? scope.job_max_age_days * 24 : scope.max_age_hours;
   if (maxAge > 0 && lead.posted_at) {
@@ -328,7 +342,8 @@ function storeLead(platform, raw, scope, { sourceId = null, kind } = {}) {
   const k = kindOf(raw.kind || kind || PLATFORMS[platform]?.kind);
   const contact = raw.contact || extractContact(`${raw.title}\n${raw.description}`);
   const cats = categorize(raw, scope);
-  const lead = { ...raw, contact, categories: cats.all, strength: cats.strength };
+  const job = k === 'job' ? jobInfo(raw, platform) : {};
+  const lead = { ...raw, ...job, contact, categories: cats.all, strength: cats.strength };
   const reason = raw.manual ? null : filterLead(lead, scope, k);
   const selected = selectedCategories(scope, k);
   const id = insert('leads', {
@@ -338,6 +353,7 @@ function storeLead(platform, raw, scope, { sourceId = null, kind } = {}) {
     status: reason ? 'filtered_out' : 'new', filter_reason: reason, score: scoreLead(lead, scope, k),
     category: cats.all.find((c) => selected.includes(c)) || cats.all[0] || null, categories: cats.all.join(','),
     company: raw.company || null, location: raw.location || null, job_type: raw.job_type || null, salary: raw.salary || null, remote: raw.remote ? 1 : 0,
+    city: job.city || null, work_types: (job.work_types || []).join(',') || null, in_turkey: job.in_turkey === undefined ? null : job.in_turkey ? 1 : 0,
     posted_at: raw.posted_at ? String(raw.posted_at) : null, source_id: sourceId,
     lang: detectLanguage(`${raw.title}\n${raw.description || ''}`),
   });
@@ -351,7 +367,8 @@ export function refilterLeads() {
   for (const l of all(`SELECT * FROM leads WHERE status IN ('new', 'filtered_out')`)) {
     const raw = { ...l, skills: l.skills ? l.skills.split(',').map((x) => x.trim()) : [], contact: JSON.parse(l.contact || '{}') };
     const cats = categorize(raw, scope);
-    const lead = { ...raw, categories: cats.all, strength: cats.strength };
+    const job = kindOf(l.kind) === 'job' ? jobInfo({ ...raw, remote: Boolean(l.remote) }, l.platform, l.lang || undefined) : {};
+    const lead = { ...raw, ...job, categories: cats.all, strength: cats.strength };
     // Listings you saved yourself stay; only scanned ones are re-filtered.
     const manual = !l.source_id;
     const reason = manual ? null : filterLead(lead, scope, kindOf(l.kind));
@@ -359,6 +376,7 @@ export function refilterLeads() {
     update('leads', l.id, {
       status: reason ? 'filtered_out' : 'new', filter_reason: reason, score: scoreLead(lead, scope, kindOf(l.kind)),
       category: cats.all.find((c) => selected.includes(c)) || cats.all[0] || null, categories: cats.all.join(','),
+      ...(job.work_types ? { city: job.city || null, work_types: job.work_types.join(',') || null, in_turkey: job.in_turkey ? 1 : 0 } : {}),
     });
     out[reason ? 'filtered' : 'matched']++;
   }
@@ -500,11 +518,12 @@ export function seedSources() {
   if (!get('SELECT id FROM sources LIMIT 1')) {
     insert('sources', { kind: 'freelancer_api', platform: 'freelancer', lead_kind: 'freelance', name: 'Freelancer.com', enabled: 1 });
   }
-  // Added with the job listings feature; also offered to existing installations once.
-  if (!get(`SELECT key FROM settings WHERE key = '_seeded_remotive'`)) {
-    if (!get(`SELECT id FROM sources WHERE kind = 'remotive_api'`)) {
-      insert('sources', { kind: 'remotive_api', platform: 'remotive', lead_kind: 'job', name: 'Remotive — uzaktan iş ilanları', enabled: 1 });
-    }
-    run(`INSERT INTO settings (key, value) VALUES ('_seeded_remotive', 'true')`);
+  // Remotive (remote jobs abroad) is listed but off: job listings are Turkey-only by default.
+  if (!get(`SELECT id FROM sources WHERE kind = 'remotive_api'`)) {
+    insert('sources', { kind: 'remotive_api', platform: 'remotive', lead_kind: 'job', name: 'Remotive — yurt dışı uzaktan işler', enabled: 0 });
+  }
+  if (!get(`SELECT key FROM settings WHERE key = '_remotive_off'`)) {
+    run(`UPDATE sources SET enabled = 0 WHERE kind = 'remotive_api'`);
+    run(`INSERT INTO settings (key, value) VALUES ('_remotive_off', 'true')`);
   }
 }
