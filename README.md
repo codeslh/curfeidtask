@@ -73,21 +73,82 @@ Modern, çerçevesiz (Bootstrap vb. kullanılmadan) kendi tasarım sistemiyle ya
 | Veritabanı yedeği | Her gün 03:00 | `data/backups` içine yedek alır, son 14 taneyi tutar |
 | Temizlik | Her gün 04:00 | Süresi dolmuş oturum/doğrulama kayıtlarını, eski bildirim ve logları siler |
 
-## Kurulum
+## Bilgisayarınızda çalıştırma
 
-Gereksinim: **Node.js 22.13+** (yerleşik SQLite kullanılır, ayrı veritabanı kurmanız gerekmez).
+Ayrı bir veritabanı, Docker veya sunucu kurmanız gerekmez; her şey tek klasörde çalışır.
+
+### 1. Node.js kurun (bir kez)
+
+[nodejs.org](https://nodejs.org) adresinden **LTS** sürümünü indirip kurun (en az **22.13**; 24 LTS önerilir).
+Kurulumdan sonra terminali kapatıp açın ve kontrol edin:
 
 ```bash
-npm install
-cp .env.example .env      # anahtarları doldurun
-npm run seed              # örnek ürün, tema ve dilleri ekler (isteğe bağlı)
-npm start                 # http://localhost:3000
+node -v      # v22.13 veya üzeri görmelisiniz
 ```
 
-İlk açılışta tarayıcıda yönetici hesabını oluşturursunuz (veya `.env` içinde `ADMIN_PASSWORD` verin).
-Ardından **Ayarlar** sayfasından IBAN, admin e-postası, yapay zeka ve tarama kapsamını girin; **Ürün & fiyatlar** sayfasından fiyat tablonuzu, temaları ve dilleri düzenleyin.
+### 2. Projeyi indirin
 
-`ANTHROPIC_API_KEY` tanımlı değilse sistem **demo modunda** çalışır: yapay zeka yanıtları basit kurallarla üretilir, böylece tüm akışı ücretsiz deneyebilirsiniz.
+```bash
+git clone https://github.com/codeslh/curfeidtask.git kalfa
+cd kalfa
+git checkout ccr-6bf895f3-gn9pwm   # (birleştirilene kadar kod bu dalda)
+```
+
+Git kullanmıyorsanız GitHub'da **Code → Download ZIP** ile indirip bir klasöre açın.
+
+### 3a. En kolay yol: çift tıklayın
+
+| Sistem | Dosya |
+|---|---|
+| Windows | `baslat.bat` |
+| macOS | `baslat.command` (ilk seferde sağ tık → Aç) |
+| Linux | terminalde `sh baslat.command` |
+
+Betik gerekirse bağımlılıkları kurar, ilk kurulumu yapar, sunucuyu başlatır ve tarayıcıyı açar.
+
+### 3b. Terminalden
+
+```bash
+npm install        # bağımlılıklar (ilk seferde)
+npm run setup      # .env dosyasını ve örnek ürün/tema/teknolojileri oluşturur (ilk seferde)
+npm start          # sunucuyu başlatır
+```
+
+Ardından tarayıcıda **http://localhost:3000** adresini açın:
+
+1. İlk açılışta yönetici hesabınızı oluşturun.
+2. **Ayarlar → İşletme**'den işletme adınızı, IBAN'ınızı ve bildirim e-postanızı girin.
+3. **Katalog**'dan fiyat tablonuzu düzenleyin.
+4. Müşteri gözünden denemek için **http://localhost:3000/chat** adresini açıp yazışın.
+
+Durdurmak için terminalde `Ctrl+C`. Tekrar başlatmak için yalnızca `npm start` (veya çift tıklama) yeterli; verileriniz `data/` klasöründe kalır.
+
+| Komut | Ne yapar |
+|---|---|
+| `npm start` | Uygulamayı başlatır |
+| `npm run dev` | Kod değiştikçe kendini yeniden başlatır (geliştirme için) |
+| `npm run setup` | İlk kurulum (.env + örnek veriler); tekrar çalıştırmak zararsızdır |
+| `npm test` | Tüm testleri çalıştırır |
+
+### Yapay zeka, e-posta ve diğer anahtarlar
+
+Hiçbir anahtar girmeden uygulama **demo modunda** tam çalışır: yapay zeka cevapları basit kurallarla üretilir, e-postalar terminal penceresine yazılır ve panelde bildirim olarak görünür. Gerçek kullanım için proje klasöründeki `.env` dosyasını bir metin düzenleyiciyle açıp doldurun, sonra uygulamayı yeniden başlatın:
+
+- `ANTHROPIC_API_KEY` — gerçek yapay zeka (Claude). [console.anthropic.com](https://console.anthropic.com) üzerinden alınır.
+- `SMTP_*` — size bildirim e-postası gitmesi için (ör. Gmail uygulama şifresi).
+- `WHATSAPP_*`, `STRIPE_*` — isteğe bağlı entegrasyonlar (aşağıda).
+
+### Sık karşılaşılan sorunlar
+
+| Belirti | Çözüm |
+|---|---|
+| "Kalfa için Node.js 22.13 veya üzeri gerekiyor" | Node.js'in güncel LTS sürümünü kurun, terminali yeniden açın. |
+| "3000 portu başka bir uygulama tarafından kullanılıyor" | `.env` içinde `PORT=3001` ve `PUBLIC_URL=http://localhost:3001` yazın. |
+| `npm` komutu bulunamıyor (Windows) | Node.js kurulumundan sonra bilgisayarı veya terminali yeniden başlatın. |
+| Şifremi unuttum, e-posta gelmiyor | SMTP ayarlı değilse sıfırlama bağlantısı terminal penceresine yazılır. |
+| Her şeyi sıfırlamak istiyorum | Uygulamayı durdurun, `data/` klasörünü silin, `npm run setup` çalıştırın. |
+
+WhatsApp ve Stripe webhook'ları internetten erişilebilir bir adres ister; yerelde denemek için [ngrok](https://ngrok.com) veya Cloudflare Tunnel ile `PUBLIC_URL`'i dışarı açabilirsiniz.
 
 ### Testler
 
@@ -118,7 +179,7 @@ Testler demo modunda tüm akışı uçtan uca dener: sohbet → anlaşma → ür
 
 ```
 src/
-  server.js, app.js, config.js, db.js, seed.js
+  server.js (giriş: Node sürüm kontrolü) → main.js, boot.js, app.js, config.js, db.js, seed.js
   routes/      auth.js, admin.js (panel API), public.js (webhook, sohbet, demo)
   services/    ai.js (Claude), sales.js (satış asistanı), projects.js (üretim/demo),
                payments.js, reports.js (istatistik, PDF), scanner.js, security.js,
@@ -126,5 +187,7 @@ src/
                notify.js (e-posta), whatsapp.js, settings.js, platforms/
 public/        index.html + js/ (admin paneli: core, charts, shell + komut paleti, views/*),
                styles.css (tasarım sistemi), chat.html + chat.js + chat.css (müşteri sohbeti)
+scripts/       setup.js (npm run setup)
+baslat.bat, baslat.command   çift tıklamayla başlatma (Windows / macOS-Linux)
 test/          uçtan uca testler
 ```
