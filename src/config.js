@@ -56,6 +56,13 @@ export const config = {
   overpassUrl: env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
   nominatimUrl: env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org',
 
+  // Translating foreign listings to Turkish (see services/translate.js). Nothing set = free MyMemory.
+  translate: {
+    deeplKey: env.DEEPL_API_KEY || '',
+    libreUrl: env.LIBRETRANSLATE_URL || '',
+    libreKey: env.LIBRETRANSLATE_API_KEY || '',
+  },
+
   // Inbound e-mail (replies from customers/prospects) — polled, so it works on a laptop.
   imap: {
     host: env.IMAP_HOST || '',

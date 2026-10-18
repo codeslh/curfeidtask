@@ -8,6 +8,7 @@ import { addMessage, findOrCreateConversation } from './inbox.js';
 import { notifyAdmin, sendMail } from './notify.js';
 import { getSection, toBase } from './settings.js';
 import { render, template } from './templates.js';
+import { detectLanguage, translatePending } from './translate.js';
 
 /**
  * Known platforms. `mode` says how leads get in:
@@ -252,6 +253,7 @@ function storeLead(platform, raw, scope, sourceId = null) {
     skills: (raw.skills || []).join(', '), client_name: raw.client_name, contact: JSON.stringify(contact),
     status: reason ? 'filtered_out' : 'new', filter_reason: reason, score: scoreLead({ ...raw, contact }, scope),
     posted_at: raw.posted_at ? String(raw.posted_at) : null, source_id: sourceId,
+    lang: detectLanguage(`${raw.title}\n${raw.description || ''}`),
   });
   return { id, matched: !reason };
 }
@@ -264,8 +266,9 @@ export async function scanSources({ onlyId = null } = {}) {
   if (scanning) return { skipped: true };
   scanning = true;
   const scope = getSection('scanner');
-  const summary = { sources: 0, fetched: 0, added: 0, matched: 0, filtered: 0, errors: [] };
+  const summary = { sources: 0, fetched: 0, added: 0, matched: 0, filtered: 0, translated: 0, errors: [] };
   const fresh = [];
+  const freshIds = [];
   try {
     const sources = onlyId ? all('SELECT * FROM sources WHERE id = ?', onlyId) : all('SELECT * FROM sources WHERE enabled = 1 ORDER BY id');
     for (const src of sources) {
@@ -279,7 +282,7 @@ export async function scanSources({ onlyId = null } = {}) {
           const r = storeLead(platform, raw, scope, src.id);
           if (!r) continue;
           stats.added++;
-          if (r.matched) { stats.matched++; fresh.push(`• ${raw.title}\n  ${raw.url || ''}`); }
+          if (r.matched) { stats.matched++; freshIds.push(r.id); }
         }
         update('sources', src.id, { last_run_at: new Date().toISOString(), last_status: 'ok', last_count: leads.length,
           last_message: `${leads.length} ilan okundu, ${stats.added} yeni, ${stats.matched} uygun` });
@@ -291,6 +294,16 @@ export async function scanSources({ onlyId = null } = {}) {
       summary.matched += stats.matched;
     }
     summary.filtered = summary.added - summary.matched;
+    // Foreign listings are translated before the notification so it can show Turkish titles.
+    if (freshIds.length) {
+      const t = await translatePending({ ids: freshIds, limit: 40 });
+      summary.translated = t.translated;
+      if (t.error) summary.translate_error = t.error;
+    }
+    for (const id of freshIds) {
+      const l = get('SELECT title, title_tr, url FROM leads WHERE id = ?', id);
+      fresh.push(`• ${l.title_tr || l.title}${l.title_tr ? `\n  (${l.title})` : ''}\n  ${l.url || ''}`);
+    }
     if (fresh.length && scope.notify_new) {
       await notifyAdmin('new_leads', `${fresh.length} yeni uygun iş ilanı`, fresh.slice(0, 30).join('\n'), '/leads');
     }
@@ -320,8 +333,10 @@ export function addManualLead({ url, title, description = '', client_name = null
 
 // --- Contacting ---------------------------------------------------------------------------------
 
-export const leadMessage = (lead) => render(template('lead_message'), { ad: lead.client_name || '', ilan: lead.title });
-export const leadSubject = (lead) => render(template('lead_subject'), { ad: lead.client_name || '', ilan: lead.title });
+// Foreign listings get the English template: the client most likely doesn't read Turkish.
+const foreign = (lead) => Boolean(lead.lang) && lead.lang !== 'tr';
+export const leadMessage = (lead) => render(template(foreign(lead) ? 'lead_message_en' : 'lead_message'), { ad: lead.client_name || '', ilan: lead.title });
+export const leadSubject = (lead) => render(template(foreign(lead) ? 'lead_subject_en' : 'lead_subject'), { ad: lead.client_name || '', ilan: lead.title });
 
 /**
  * channel: email (sent by Kalfa) | whatsapp_link (you send it from WhatsApp) | platform (you sent an offer on the site) | phone

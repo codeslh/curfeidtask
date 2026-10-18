@@ -22,7 +22,7 @@ defineJob('platform_scan', {
   async run() {
     const r = await scanSources();
     if (r.skipped) return 'Önceki tarama hâlâ sürüyor, atlandı';
-    return `${r.sources} kaynak, ${r.fetched} ilan okundu: ${r.added} yeni (${r.matched} uygun)${r.errors.length ? ` · ${r.errors.length} kaynakta hata` : ''}`;
+    return `${r.sources} kaynak, ${r.fetched} ilan okundu: ${r.added} yeni (${r.matched} uygun)${r.translated ? `, ${r.translated} çevrildi` : ''}${r.translate_error ? ` · çeviri: ${r.translate_error}` : ''}${r.errors.length ? ` · ${r.errors.length} kaynakta hata` : ''}`;
   },
 });
 

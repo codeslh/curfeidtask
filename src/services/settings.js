@@ -13,7 +13,7 @@ export const DEFAULTS = {
     timezone: 'Europe/Istanbul',              // used by daily scheduled tasks
   },
   scanner: {
-    keywords: ['web sitesi', 'website', 'web tasarım', 'landing page', 'e-ticaret', 'wordpress'],
+    keywords: ['web sitesi', 'website', 'web tasarım', 'web design', 'landing page', 'e-ticaret', 'e-commerce', 'wordpress'],
     exclude_keywords: ['kripto', 'bahis'],
     min_budget: 0,
     max_budget: 0,                            // 0 = no upper bound
@@ -21,6 +21,8 @@ export const DEFAULTS = {
     max_age_hours: 72,
     max_leads_per_scan: 30,                   // per source
     notify_new: true,                         // e-mail the admin when a scan finds matching listings
+    translate: true,                          // translate foreign listings to Turkish
+    translate_max_chars: 1500,                // translate only the start of long descriptions (saves free quota)
   },
   prospecting: {
     location: '',                             // address / district / city to scan around
@@ -43,6 +45,9 @@ export const DEFAULTS = {
     prospect_subject: '{ad} için web sitesi önerisi',
     lead_message: 'Merhaba, "{ilan}" ilanınızı gördüm. Bu işi yapabilirim; benzer işlerden örnekler paylaşabilir, size uygun bir teklif hazırlayabilirim. Detayları konuşmak ister misiniz?',
     lead_subject: '"{ilan}" ilanınız hakkında',
+    // Used for listings written in another language (the client probably doesn't read Turkish).
+    lead_message_en: 'Hello, I saw your project "{ilan}". I can do this; I can share examples of similar work and prepare an offer that fits your needs. Would you like to discuss the details?',
+    lead_subject_en: 'About your project "{ilan}"',
   },
   security: {
     max_failed_logins: 5,                     // per email in 15 minutes -> alert + lockout

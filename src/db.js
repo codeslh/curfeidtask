@@ -225,6 +225,10 @@ const COLUMNS = {
     contacted_at: 'TEXT',
     notes: "TEXT NOT NULL DEFAULT ''",
     source_id: 'INTEGER',
+    lang: 'TEXT',                        // detected language of the listing
+    title_tr: 'TEXT',                    // Turkish translation (foreign listings)
+    description_tr: 'TEXT',
+    translated_by: 'TEXT',
   },
   conversations: {
     followup_count: 'INTEGER NOT NULL DEFAULT 0',

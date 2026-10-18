@@ -282,12 +282,14 @@ const SETTINGS = {
     ['min_budget', 'En düşük bütçe (ana para)', 'number'], ['max_budget', 'En yüksek bütçe (0 = sınırsız)', 'number'], ['currencies', 'Para birimleri (boş = hepsi)', 'list'],
     ['max_age_hours', 'En fazla ilan yaşı (saat)', 'number'], ['max_leads_per_scan', 'Kaynak başına en fazla ilan', 'number'],
     ['notify_new', 'Yeni uygun ilan bulununca e-postayla bildir', 'bool'],
+    ['translate', 'Yabancı dildeki ilanları Türkçeye çevir', 'bool'], ['translate_max_chars', 'Açıklamanın en fazla kaç karakteri çevrilsin', 'number'],
   ]],
   templates: ['Mesaj şablonları', 'message-square-text', 'İşletmelere ve ilan sahiplerine yazılan hazır mesajlar', [
     ['_help', '', 'help'],
     ['prospect_no_site', 'İşletme — web sitesi yok', 'textarea'], ['prospect_social', 'İşletme — sadece sosyal medya var', 'textarea'],
     ['prospect_old_site', 'İşletme — sitesi eski / zayıf', 'textarea'], ['prospect_subject', 'İşletme e-posta konusu'],
     ['lead_message', 'İş ilanı sahibine mesaj', 'textarea'], ['lead_subject', 'İlan e-posta konusu'],
+    ['lead_message_en', 'Yabancı ilan sahibine mesaj (İngilizce)', 'textarea'], ['lead_subject_en', 'Yabancı ilan e-posta konusu'],
   ]],
   prospecting: ['Bölge taraması', 'radar', 'Konum, kategoriler ve gönderim kuralları', [
     ['location', 'Taranacak konum (semt, ilçe veya adres)'], ['radius_km', 'Yarıçap (km)', 'number'],
@@ -341,7 +343,8 @@ export async function viewSettings(main, sectionParam) {
       ${section === 'business' ? `<div class="sys-status"><h3 class="h-xs">Bağlantılar</h3>${[
     ['smtp', 'E-posta gönderimi', 'SMTP_* — yoksa e-posta gönderilemez'], ['imap', 'Gelen e-postalar', 'IMAP_* — yoksa cevapları elle eklersiniz'],
     ['whatsapp_api', 'WhatsApp API', 'WHATSAPP_* — yoksa mesajlar wa.me ile kendi WhatsApp\'ınızdan gider'], ['google_places', 'Google Places', 'GOOGLE_PLACES_API_KEY (isteğe bağlı)'],
-  ].map(([k, l, h]) => `<div class="sys-row ${status[k] ? 'on' : ''}">${icon(status[k] ? 'circle-check' : 'circle-dot', 'sm')}<b>${l}</b><span>${status[k] ? 'Bağlı' : h}</span></div>`).join('')}
+    ['translate', 'İlan çevirisi', ''],
+  ].map(([k, l, h]) => `<div class="sys-row ${status[k] ? 'on' : ''}">${icon(status[k] ? 'circle-check' : 'circle-dot', 'sm')}<b>${l}</b><span>${k === 'translate' ? `${esc(status.translate_label)}${status.translate === 'mymemory' ? ' — daha fazlası için DEEPL_API_KEY' : ''}` : status[k] ? 'Bağlı' : h}</span></div>`).join('')}
         <p class="muted small">Anahtarlar proje klasöründeki <code>.env</code> dosyasındadır; değiştirdikten sonra uygulamayı yeniden başlatın.</p></div>` : ''}
       ${section === 'business' ? `<div class="callout info">${icon('shield', 'sm')} Bildirim e-postası değişirse eski adrese ve tüm yöneticilere güvenlik uyarısı gider.</div>` : ''}
       <div class="form-grid">${fields.map(input).join('')}</div>

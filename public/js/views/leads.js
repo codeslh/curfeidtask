@@ -6,6 +6,10 @@ const GROUPS = {
   new: ['new'], contacted: ['contacted'], replied: ['replied'], won: ['won'], archive: ['lost', 'ignored'], filtered_out: ['filtered_out'],
 };
 
+const LANG = { en: 'İngilizce', de: 'Almanca', es: 'İspanyolca', fr: 'Fransızca', pt: 'Portekizce', it: 'İtalyanca', ru: 'Rusça', ar: 'Arapça' };
+const langTag = (l) => (l.foreign ? `<span class="tag lang" title="${esc(LANG[l.lang] || l.lang)} ilan${l.title_tr ? ` · orijinal başlık: ${esc(l.title)}` : ''}">${esc(String(l.lang).toUpperCase())}${l.title_tr ? ' → TR' : ''}</span>` : '');
+const googleTranslate = (text) => `https://translate.google.com/?sl=auto&tl=tr&op=translate&text=${encodeURIComponent(String(text).slice(0, 4500))}`;
+
 const budgetText = (l) => (l.budget_min == null && l.budget_max == null ? ''
   : `${l.budget_min != null ? money(l.budget_min) : ''}${l.budget_min != null && l.budget_max != null ? ' – ' : ''}${l.budget_max != null ? money(l.budget_max) : ''} ${l.currency || ''}`.trim());
 
@@ -68,8 +72,8 @@ export async function viewLeads(main, id) {
   <div class="card-grid" id="grid">${list.map((l) => `
     <article class="lead-card ${l.status}" data-open="${l.id}" tabindex="0">
       <div class="lc-top"><span class="platform">${icon('globe', 'xs')} ${esc(l.platform_label)}</span>${l.score != null ? `<span class="score-dot" title="Uygunluk puanı">${l.score}</span>` : ''}${pill(l.status)}<time>${ago(l.created_at)}</time></div>
-      <h3>${esc(l.title)}</h3>
-      ${l.description ? `<p class="lc-desc">${esc(l.description.slice(0, 220))}${l.description.length > 220 ? '…' : ''}</p>` : ''}
+      <h3>${langTag(l)}${esc(l.title_tr || l.title)}</h3>
+      ${(l.description_tr || l.description) ? `<p class="lc-desc">${esc((l.description_tr || l.description).slice(0, 220))}${(l.description_tr || l.description).length > 220 ? '…' : ''}</p>` : ''}
       ${l.skills ? `<div class="lc-skills">${l.skills.split(',').filter(Boolean).slice(0, 4).map((s) => `<span class="tag">${esc(s.trim())}</span>`).join('')}</div>` : ''}
       ${l.filter_reason ? `<div class="lc-reason">${icon('filter', 'xs')} ${esc(l.filter_reason)}</div>` : ''}
       <div class="lc-foot">
@@ -113,18 +117,22 @@ async function openLead(leadId, smtp) {
   const canContact = ['new', 'filtered_out'].includes(l.status);
   const result = modal({
     drawer: true, hideFooter: true,
-    title: esc(l.title),
+    title: esc(l.title_tr || l.title),
     description: `${esc(l.platform_label)} · ${ago(l.created_at)}${budgetText(l) ? ` · ${esc(budgetText(l))}` : ''}`,
     body: `<div class="pd">
       <div class="row wrap">${pill(l.status)}${l.score != null ? `<span class="tag">Uygunluk ${l.score}/100</span>` : ''}${l.filter_reason ? `<span class="tag">${icon('filter', 'xs')} ${esc(l.filter_reason)}</span>` : ''}</div>
       ${l.url ? `<a class="btn primary block" href="${esc(l.url)}" target="_blank" rel="noopener">${icon('external-link', 'sm')} İlana git · ${esc(l.platform_label)}</a>` : ''}
-      ${l.description ? `<div class="lead-desc">${esc(l.description)}</div>` : ''}
+      ${l.foreign ? `<div class="translate-bar">${icon('globe', 'sm')}<span>${l.title_tr ? `${esc(LANG[l.lang] || l.lang)} ilan, Türkçeye çevrildi.` : `${esc(LANG[l.lang] || l.lang)} ilan, henüz çevrilmedi.`}</span>
+        <button type="button" class="btn sm" id="translate">${icon('refresh-cw', 'xs')} ${l.title_tr ? 'Yeniden çevir' : 'Türkçeye çevir'}</button>
+        <a class="btn sm ghost" href="${googleTranslate(`${l.title}\n\n${l.description || ''}`)}" target="_blank" rel="noopener">Google Çeviri'de aç</a></div>` : ''}
+      ${(l.description_tr || l.description) ? `<div class="lead-desc">${esc(l.description_tr || l.description)}</div>` : ''}
+      ${l.title_tr ? `<details class="orig"><summary>Orijinal metin</summary><div class="lead-desc"><b>${esc(l.title)}</b>\n\n${esc(l.description || '')}</div></details>` : ''}
       <div class="pd-grid"><div><h4>İletişim</h4><ul class="pd-contact">
         ${l.client_name ? `<li>${icon('user', 'xs')} ${esc(l.client_name)}</li>` : ''}
         <li>${icon('mail', 'xs')} ${l.contact.email ? esc(l.contact.email) : '<span class="muted">Yok</span>'}</li>
         <li>${icon('phone', 'xs')} ${l.contact.phone ? `<a href="tel:+${esc(l.contact.phone)}">+${esc(l.contact.phone)}</a>` : '<span class="muted">Yok</span>'}</li></ul></div>
         <div><h4>Nasıl yazılır?</h4><p class="small muted">${l.contact.email || l.contact.phone ? 'İlanda iletişim bilgisi var; doğrudan yazabilirsiniz.' : 'İletişim bilgisi yok: mesajı kopyalayıp sitede teklif olarak gönderin, sonra "Teklif verdim"e basın.'}</p></div></div>
-      <label class="field">Mesaj <small>Ayarlar → Mesaj şablonları'ndan değiştirebilirsiniz.</small>
+      <label class="field">Mesaj <small>${l.foreign ? 'İlan yabancı dilde olduğu için İngilizce şablon kullanıldı. ' : ''}Ayarlar → Mesaj şablonları'ndan değiştirebilirsiniz.</small>
         <textarea id="lmsg" rows="6">${esc(l.message)}</textarea></label>
       <div class="pd-actions">
         <button type="button" class="btn" id="copyMsg">${icon('copy', 'sm')} Mesajı kopyala</button>
@@ -147,6 +155,12 @@ async function openLead(leadId, smtp) {
   const dlg = [...document.querySelectorAll('.dialog')].at(-1);
   const msg = () => $('#lmsg', dlg).value;
   $('#copyMsg', dlg).onclick = () => copy(msg());
+  $('#translate', dlg)?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
+    if (await act(() => POST(`/leads/${l.id}/translate`), 'Çevrildi')) {
+      document.querySelector('.overlay')?.remove();
+      openLead(l.id, smtp);
+    }
+  }));
   $('#lnotes', dlg).onchange = (e) => act(() => PUT(`/leads/${l.id}`, { notes: e.target.value }), 'Not kaydedildi');
   $$('[data-st]', dlg).forEach((b) => { b.onclick = async () => { if (await act(() => PUT(`/leads/${l.id}`, { status: b.dataset.st }))) done('Durum güncellendi'); }; });
   $$('[data-ch]', dlg).forEach((b) => {

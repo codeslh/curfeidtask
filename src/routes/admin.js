@@ -11,6 +11,7 @@ import * as scheduler from '../services/scheduler.js';
 import * as security from '../services/security.js';
 import { getSettings, saveSection } from '../services/settings.js';
 import * as sources from '../services/sources.js';
+import * as translate from '../services/translate.js';
 import { whatsappApiReady } from '../services/whatsapp.js';
 import { asyncRoute, auditTrail, authorize, clientInfo, requireAuth } from './util.js';
 
@@ -173,6 +174,7 @@ router.post('/prospects/:id/block', (req, res) => {
 router.get('/system/status', (_req, res) => res.json({
   smtp: Boolean(config.smtp.host), imap: mailboxReady(), whatsapp_api: whatsappApiReady(),
   google_places: Boolean(config.googlePlacesKey), public_url: config.publicUrl,
+  translate: translate.provider(), translate_label: translate.PROVIDER_LABEL[translate.provider()],
 }));
 
 // --- Customers (people who answered) ---------------------------------------------------------
@@ -234,7 +236,10 @@ const LEAD_STATUSES = ['new', 'filtered_out', 'contacted', 'replied', 'won', 'lo
 const leadRow = (l) => {
   const contact = JSON.parse(l.contact || '{}');
   const message = sources.leadMessage(l);
-  return { ...l, contact, platform_label: sources.PLATFORMS[l.platform]?.label || l.platform, message, whatsapp_link: sources.whatsappLeadLink(l, message) };
+  return {
+    ...l, contact, platform_label: sources.PLATFORMS[l.platform]?.label || l.platform, message, whatsapp_link: sources.whatsappLeadLink(l, message),
+    foreign: translate.needsTranslation(l.lang),
+  };
 };
 router.get('/leads', (req, res) => {
   const status = LEAD_STATUSES.includes(req.query.status) ? req.query.status : null;
@@ -252,9 +257,19 @@ router.get('/leads/:id', (req, res) => {
   res.json(leadRow(lead));
 });
 router.post('/leads/scan', asyncRoute(async (_req, res) => res.json(await sources.scanSources())));
-router.post('/leads', (req, res) => {
-  try { res.json(sources.addManualLead(req.body || {})); } catch (err) { bad(res, err); }
-});
+router.post('/leads', asyncRoute(async (req, res) => {
+  let r;
+  try { r = sources.addManualLead(req.body || {}); } catch (err) { return bad(res, err); }
+  // A listing saved from a foreign site is translated right away (best effort).
+  if (!r.duplicate && getSettings().scanner.translate) {
+    const t = await translate.translatePending({ ids: [r.id], limit: 1 });
+    if (t.error) r.translate_error = t.error;
+  }
+  res.json(r);
+}));
+router.post('/leads/:id/translate', asyncRoute(async (req, res) => {
+  try { res.json(leadRow(await translate.translateLead(id(req), { force: true }))); } catch (err) { bad(res, err); }
+}));
 router.put('/leads/:id', (req, res) => {
   const { status, notes } = req.body || {};
   const patch = {};

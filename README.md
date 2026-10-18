@@ -16,6 +16,7 @@ Kalfa, freelancerlar için bir **müşteri bulma aracıdır**. Kendi bilgisayar�
 |---|---|
 | İlan kaynakları | Freelancer.com (açık API), R10.net ve herkese açık her ilan sayfası (sayfa izleme, isteğe bağlı bağlantı filtresi), RSS/Atom (sayfada RSS varsa otomatik kullanılır), "Kalfa'ya ekle" yer imi (Bionluk, Armut, Upwork, Fiverr…), elle ilan ekleme |
 | İlan filtresi | Anahtar kelime, hariç kelime, bütçe aralığı, para birimi, ilan yaşı; uygunluk puanı (başlıkta kelime, bütçe, iletişim bilgisi, yenilik); ilan metnindeki e-posta ve telefon otomatik bulunur |
+| Çeviri | Yabancı dildeki ilanların (Freelancer.com, Upwork…) başlığı ve açıklaması otomatik Türkçeye çevrilir, orijinali de görünür; bu ilanlara İngilizce mesaj şablonu kullanılır. Ücretsiz MyMemory (anahtarsız), DeepL Free veya kendi LibreTranslate sunucunuz |
 | İlan takibi | Yeni → Yazıldı → Cevap verdi → Kazanıldı / Kaybedildi; notlar, CSV dışa aktarma |
 | Bölge taraması | OpenStreetMap (ücretsiz) veya Google Places; harita, site incelemesi, kural tabanlı puan, zincir marka eleme, mesaj taslağı; günlük gönderim sınırı, İPTAL yazanları kalıcı engelleme |
 | Mesaj şablonları | İşletme (site yok / sadece sosyal medya / eski site) ve ilan mesajları; `{ad}`, `{ilan}`, `{bulgu}`, `{isletmem}` gibi alanlar otomatik dolar |
@@ -102,6 +103,7 @@ Hiçbir ayar girmeden uygulama tam çalışır; yalnızca e-postalar gönderilme
 
 - `SMTP_*` — işletmelere / ilan sahiplerine e-posta göndermek ve size bildirim gelmesi için (ör. Gmail uygulama şifresi).
 - `IMAP_*` — size e-postayla gelen cevapları Konuşmalar'a eklemek için (Gmail: `imap.gmail.com`, aynı uygulama şifresi).
+- `DEEPL_API_KEY` — yabancı ilanların çevirisi için (isteğe bağlı). Boşsa ücretsiz MyMemory kullanılır; günlük kotası dolarsa çeviri ertesi gün devam eder. DeepL Free ayda 500.000 karakter ücretsizdir: [deepl.com/pro-api](https://www.deepl.com/pro-api).
 - `GOOGLE_PLACES_API_KEY` — bölge taramasında daha çok işletme bilgisi için (isteğe bağlı, ücretli).
 - `WHATSAPP_*` — WhatsApp Cloud API (isteğe bağlı). Yoksa WhatsApp mesajları tek tıkla kendi WhatsApp'ınızdan gönderilir.
 
@@ -130,6 +132,7 @@ Testler dış servisleri taklit ederek tüm akışı dener: Freelancer.com / say
 ## Bilmeniz gerekenler
 
 - **Ticari ileti kuralları:** Türkiye'de işletmelere izinsiz tanıtım mesajı göndermek 6563 sayılı kanun / İYS ve KVKK kapsamındadır; WhatsApp da istenmeyen mesajları kısıtlar. Bu yüzden Kalfa varsayılan olarak hiçbir şeyi kendiliğinden göndermez: her mesajı siz onaylarsınız, günlük gönderim sınırı vardır, işletme mesajlarının sonuna "İPTAL yazın" cümlesi eklenir ve İPTAL yazanların telefonu/e-postası kalıcı olarak engellenir. Kurallara uymak sizin sorumluluğunuzdadır.
+- **Çeviri:** Kotayı korumak için yalnızca anahtar kelimelerinize uyan ilanlar ve açıklamaların ilk 1.500 karakteri çevrilir (Ayarlar → İş ilanları). Filtre ilanın orijinal metnine bakar; yabancı ilanlar için İngilizce anahtar kelimeler de ekleyin (ör. website, web design). İlan metinleri seçtiğiniz çeviri servisine gönderilir.
 - **OpenStreetMap:** Ücretsiz Nominatim ve Overpass servisleri kullanılır; yoğun kullanımda kendi sunucunuzu `NOMINATIM_URL` / `OVERPASS_URL` ile verebilirsiniz.
 - **Güvenlik:** İşletme siteleri ve izlenen sayfalar okunurken yerel ağ adreslerine istek atılmaz.
 - **Yedekleme:** Tüm veriler `DATA_DIR` (varsayılan `data/`) klasöründedir; günlük yedek `data/backups` içine alınır.
@@ -140,7 +143,7 @@ Testler dış servisleri taklit ederek tüm akışı dener: Freelancer.com / say
 src/
   server.js (giriş: Node sürüm kontrolü) → main.js, boot.js, app.js, config.js, db.js, seed.js
   routes/      auth.js, admin.js (panel API), public.js (WhatsApp webhook), assets.js
-  services/    sources.js (ilan kaynakları, filtre, puan), prospecting.js (bölge taraması),
+  services/    sources.js (ilan kaynakları, filtre, puan), translate.js (çeviri), prospecting.js (bölge taraması),
                inbox.js (konuşmalar), templates.js (mesaj şablonları), mailbox.js (IMAP),
                notify.js (e-posta), whatsapp.js, http.js (dış istekler + iç ağ koruması),
                security.js, totp.js (2FA), ratelimit.js, scheduler.js + jobs.js, settings.js

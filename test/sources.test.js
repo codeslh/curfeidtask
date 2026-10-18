@@ -8,9 +8,11 @@ const { createApp } = await import('../src/app.js');
 const { saveSection } = await import('../src/services/settings.js');
 const { setFetch, setLookup } = await import('../src/services/http.js');
 const sources = await import('../src/services/sources.js');
+const { detectLanguage, chunk } = await import('../src/services/translate.js');
 
 const html = (body) => new Response(body, { status: 200, headers: { 'Content-Type': 'text/html' } });
 const calls = [];
+let quotaLeft = Infinity;
 
 const FORUM = `<html><body><nav><a href="/">Ana sayfa</a><a href="/giris">Giriş</a></nav>
   <a href="/konu/123-kuafor-icin-web-sitesi">Kuaför salonu için web sitesi yapılacak</a>
@@ -31,6 +33,12 @@ async function fakeFetch(url) {
       { id: 1, title: 'Need a website for my cafe', description: 'Small website, contact me', budget: { minimum: 100, maximum: 300 }, currency: { code: 'USD' }, seo_url: 'cafe-site', time_submitted: Math.floor(Date.now() / 1000), jobs: [{ name: 'HTML' }] },
       { id: 2, title: 'Crypto trading bot', description: 'Telegram bot', budget: { minimum: 500, maximum: 900 }, currency: { code: 'USD' }, seo_url: 'bot', jobs: [] },
     ] } });
+  }
+  if (url.startsWith('https://api.mymemory.translated.net/get')) {
+    const q = new URL(url).searchParams;
+    if (quotaLeft-- <= 0) return Response.json({ responseStatus: 429, quotaFinished: true, responseDetails: 'MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY' });
+    assert.equal(q.get('langpair'), 'en|tr');
+    return Response.json({ responseStatus: 200, responseData: { translatedText: `TR[${q.get('q')}]` } });
   }
   if (url === 'https://forum.test/hizmet-alim/') return html(FORUM);
   if (url === 'https://ilan.test/') return html(FEED_PAGE);
@@ -62,6 +70,26 @@ after(() => {
 });
 
 const lead = (title) => get('SELECT * FROM leads WHERE title = ?', title);
+
+describe('dil tanıma ve parçalama', () => {
+  test('Türkçe ve yabancı ilanlar ayırt edilir', () => {
+    assert.equal(detectLanguage('Kuaför salonu için web sitesi yapılacak'), 'tr');
+    assert.equal(detectLanguage('Kafe için site istiyorum'), 'tr');
+    assert.equal(detectLanguage('I need a website for my restaurant'), 'en');
+    assert.equal(detectLanguage('Logo design'), 'en');
+    assert.equal(detectLanguage('Wir suchen eine neue Webseite für unsere Firma'), 'de');
+    assert.equal(detectLanguage('Нужен сайт'), 'ru');
+    assert.equal(detectLanguage(''), null);
+  });
+
+  test('uzun metin ücretsiz servisin sınırına göre bölünür', () => {
+    const text = `${'This is a sentence. '.repeat(60)}${'x'.repeat(1200)}`;
+    const parts = chunk(text, 450);
+    assert.ok(parts.length > 3);
+    assert.ok(parts.every((p) => Buffer.byteLength(p) <= 450));
+    assert.equal(parts.join('').replace(/\s/g, ''), text.replace(/\s/g, ''));
+  });
+});
 
 describe('ilan kaynakları', () => {
   test('siteler adresinden tanınır', () => {
@@ -125,10 +153,42 @@ describe('ilan kaynakları', () => {
     assert.equal(JSON.parse(wp.contact).email, 'ali@firma.test');
     assert.ok(wp.score > kuafor.score, 'iletişim ve bütçe puanı artırmalı');
 
+    // The English Freelancer.com listing was translated; Turkish ones were left alone.
+    assert.equal(cafe.lang, 'en');
+    assert.equal(cafe.title_tr, 'TR[Need a website for my cafe]');
+    assert.equal(cafe.description_tr, 'TR[Small website, contact me]');
+    assert.equal(cafe.translated_by, 'mymemory');
+    assert.equal(kuafor.lang, 'tr');
+    assert.equal(kuafor.title_tr, null);
+    assert.equal(lead('Crypto trading bot').title_tr, null, 'elenen ilanlar çevrilmez (kota harcanmaz)');
+    assert.equal(r.data.translated, 1);
+    assert.match(get(`SELECT body FROM notifications WHERE type = 'new_leads'`).body, /TR\[Need a website for my cafe\]/);
+
     const spa = get(`SELECT * FROM sources WHERE url = 'https://spa.test/'`);
     assert.equal(spa.last_status, 'error');
     assert.equal(get(`SELECT last_status FROM sources WHERE url = 'https://forum.test/hizmet-alim/'`).last_status, 'ok');
     assert.ok(get(`SELECT id FROM notifications WHERE type = 'new_leads'`));
+  });
+
+  test('yabancı ilana İngilizce mesaj hazırlanır', async () => {
+    const d = (await admin.req('GET', `/api/leads/${lead('Need a website for my cafe').id}`)).data;
+    assert.equal(d.foreign, true);
+    assert.match(d.message, /^Hello, I saw your project "Need a website for my cafe"/);
+  });
+
+  test('kota dolunca çeviri durur, tarama bozulmaz; sonra elle çevrilebilir', async () => {
+    quotaLeft = 0;
+    const r = await admin.req('POST', '/api/leads', { url: 'https://www.upwork.com/jobs/1', title: 'Looking for a web designer', description: 'We need a new website for our shop.' });
+    assert.equal(r.status, 200);
+    assert.match(r.data.translate_error, /kotası/);
+    const l = get('SELECT * FROM leads WHERE id = ?', r.data.id);
+    assert.equal(l.platform, 'upwork');
+    assert.equal(l.lang, 'en');
+    assert.equal(l.title_tr, null);
+    quotaLeft = Infinity;
+    const t = await admin.req('POST', `/api/leads/${l.id}/translate`);
+    assert.equal(t.status, 200);
+    assert.equal(t.data.title_tr, 'TR[Looking for a web designer]');
   });
 
   test('ikinci tarama aynı ilanları tekrar eklemez', async () => {
