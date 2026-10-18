@@ -274,6 +274,49 @@ CREATE TABLE IF NOT EXISTS job_runs (
   finished_at TEXT
 );
 CREATE INDEX IF NOT EXISTS job_runs_job ON job_runs(job, id);
+
+-- Local business prospecting ("Bölge taraması").
+CREATE TABLE IF NOT EXISTS prospects (
+  id INTEGER PRIMARY KEY,
+  source TEXT NOT NULL,                  -- osm | google | demo
+  source_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT,
+  address TEXT,
+  lat REAL, lng REAL,
+  phone TEXT, email TEXT, website TEXT,
+  raw TEXT,                              -- JSON of the source record (tags)
+  site_check TEXT,                       -- JSON result of the website inspection
+  signals TEXT,                          -- JSON array of human-readable findings
+  score INTEGER,                         -- 0-100 likelihood of needing a website
+  score_reason TEXT,
+  suggested_product TEXT,
+  message TEXT,                          -- drafted outreach message (editable)
+  status TEXT NOT NULL DEFAULT 'new',    -- new | analyzed | contacted | replied | opted_out | skipped | converted
+  channel TEXT,                          -- email | whatsapp | whatsapp_link | phone
+  customer_id INTEGER, conversation_id INTEGER,
+  scan_id INTEGER,
+  analyzed_at TEXT, contacted_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(source, source_id)
+);
+CREATE INDEX IF NOT EXISTS prospects_status ON prospects(status, score);
+
+CREATE TABLE IF NOT EXISTS prospect_scans (
+  id INTEGER PRIMARY KEY,
+  location TEXT, lat REAL, lng REAL, radius_km REAL, categories TEXT, source TEXT,
+  found INTEGER NOT NULL DEFAULT 0, added INTEGER NOT NULL DEFAULT 0, analyzed INTEGER NOT NULL DEFAULT 0, contacted INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'running', message TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), finished_at TEXT
+);
+
+-- People who asked not to be contacted again. Checked before every outreach.
+CREATE TABLE IF NOT EXISTS do_not_contact (
+  id INTEGER PRIMARY KEY,
+  phone TEXT, email TEXT,
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 // Columns added after the first release; ALTER them into older databases.

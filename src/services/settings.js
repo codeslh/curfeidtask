@@ -49,6 +49,20 @@ export const DEFAULTS = {
     max_refunds_per_day: 3,                   // more refunds than this in 24h raise an alert
     audit_retention_days: 365,
   },
+  prospecting: {
+    location: '',                             // address / district / city to scan around
+    lat: null, lng: null,                     // filled automatically from location (or set by clicking the map)
+    radius_km: 2,
+    categories: ['restaurant', 'cafe', 'hairdresser', 'beauty', 'dentist', 'veterinary', 'car_repair', 'real_estate', 'gym', 'clothes', 'florist', 'bakery'],
+    source: 'osm',                            // osm (free) | google (needs GOOGLE_PLACES_API_KEY)
+    max_per_scan: 40,
+    min_score: 60,                            // only businesses at or above this score are offered for contact
+    auto_send: false,                         // scheduled scans also send (email / WhatsApp template) within the daily limit
+    daily_limit: 20,
+    prefer_channel: 'email',                  // email | whatsapp
+    signature: '',                            // appended to every outreach message
+    opt_out_text: "Bu konuda mesaj almak istemezseniz 'İPTAL' yazmanız yeterli; bir daha rahatsız etmeyiz.",
+  },
   automation: {
     payment_reminder_days: 2,                 // remind the customer every N days while unpaid
     payment_max_reminders: 3,

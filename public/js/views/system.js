@@ -224,6 +224,7 @@ export async function viewAudit(main) {
 const JOB_ICON = {
   platform_scan: 'target', customer_followups: 'message-circle', payment_reminders: 'credit-card', escalation_reminders: 'circle-alert',
   daily_digest: 'calendar', monthly_report: 'file-text', token_budget_watch: 'cpu', security_scan: 'shield', backup: 'download', cleanup: 'trash-2',
+  prospect_scan: 'radar', email_inbox: 'mail', stripe_sync: 'credit-card',
 };
 
 export async function viewJobs(main) {
@@ -300,6 +301,14 @@ const SETTINGS = {
     ['large_refund_amount', 'Uyarı verilecek iade tutarı', 'number'], ['max_refunds_per_day', 'Günlük iade uyarı eşiği', 'number'],
     ['audit_retention_days', 'Kayıt saklama süresi (gün)', 'number'],
   ]],
+  prospecting: ['Bölge taraması', 'radar', 'Konum, kategoriler ve gönderim kuralları', [
+    ['location', 'Taranacak konum (semt, ilçe veya adres)'], ['radius_km', 'Yarıçap (km)', 'number'],
+    ['source', 'Veri kaynağı', 'prospect_source'], ['prefer_channel', 'Öncelikli kanal', 'channel'],
+    ['categories', 'İşletme kategorileri', 'prospect_categories'],
+    ['min_score', 'İletişime geçilecek en düşük puan (0-100)', 'number'], ['max_per_scan', 'Tarama başına en fazla yeni işletme', 'number'],
+    ['auto_send', 'Zamanlanmış taramada otomatik gönder (yalnızca e-posta / WhatsApp şablonu)', 'bool'], ['daily_limit', 'Günlük en fazla gönderim', 'number'],
+    ['signature', 'Mesaj imzası (boşsa: yetkili adı · işletme adı)', 'textarea'], ['opt_out_text', 'Her mesajın sonuna eklenen ret cümlesi', 'textarea'],
+  ]],
   automation: ['Otomasyon', 'clock', 'Zamanlanmış görevlerin eşikleri', [
     ['payment_reminder_days', 'Ödeme hatırlatma sıklığı (gün)', 'number'], ['payment_max_reminders', 'En fazla hatırlatma', 'number'],
     ['followup_after_hours', 'Takip mesajı (saat sonra)', 'number'], ['followup_max', 'En fazla takip mesajı', 'number'],
@@ -310,7 +319,9 @@ const SETTINGS = {
 
 export async function viewSettings(main, sectionParam) {
   const section = SETTINGS[sectionParam] ? sectionParam : 'business';
-  const [settings, platforms] = await Promise.all([GET('/settings'), GET('/platforms')]);
+  const [settings, platforms, status, pros] = await Promise.all([
+    GET('/settings'), GET('/platforms'), GET('/system/status'), section === 'prospecting' ? GET('/prospects') : Promise.resolve(null),
+  ]);
   const [title, ic, desc, fields] = SETTINGS[section];
   const v = settings[section];
   const input = ([k, l, t]) => {
@@ -320,6 +331,9 @@ export async function viewSettings(main, sectionParam) {
     if (t === 'json') return `<label class="field span-2">${l}<textarea name="${k}" class="mono" rows="4">${esc(JSON.stringify(val, null, 2))}</textarea></label>`;
     if (t === 'list') return `<label class="field">${l}<input name="${k}" value="${esc((val || []).join(', '))}" placeholder="virgülle ayırın"><small>Virgülle ayırın</small></label>`;
     if (t === 'provider') return field(k, l, { options: [['iban', 'IBAN (havale/EFT)'], ['stripe', 'Stripe (kart) + IBAN']], value: val });
+    if (t === 'prospect_categories') return `<div class="field span-2">${l}<div class="choice-grid tight">${pros.categories.map((c) => `<label class="choice"><input type="checkbox" data-cat value="${c.key}" ${val.includes(c.key) ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div></div>`;
+    if (t === 'prospect_source') return field(k, l, { options: [['osm', 'OpenStreetMap (ücretsiz, anahtarsız)'], ['google', `Google Places${status.google_places ? '' : ' — GOOGLE_PLACES_API_KEY gerekli'}`]], value: val });
+    if (t === 'channel') return field(k, l, { options: [['email', 'E-posta'], ['whatsapp', 'WhatsApp']], value: val });
     if (t === 'platforms') return `<div class="field span-2">${l}<div class="choice-grid">${platforms.map((p) => `<label class="choice"><input type="checkbox" data-platform value="${p.name}" ${val.includes(p.name) ? 'checked' : ''}><span>${icon('globe', 'sm')} ${esc(p.label)}</span></label>`).join('')}</div></div>`;
     return field(k, l, { type: t || 'text', value: val });
   };
@@ -328,6 +342,11 @@ export async function viewSettings(main, sectionParam) {
     <nav class="settings-nav">${Object.entries(SETTINGS).map(([k, [t, i, d]]) => `<a href="#/settings/${k}" class="${k === section ? 'active' : ''}">${icon(i, 'sm')}<span><b>${t}</b><small>${d}</small></span></a>`).join('')}</nav>
     <form class="card settings-panel" id="sf">
       <div class="card-head"><div><h2>${icon(ic, 'sm')} ${title}</h2><p>${desc}</p></div></div>
+      ${section === 'business' ? `<div class="sys-status"><h3 class="h-xs">Bağlantılar</h3>${[
+    ['ai', 'Yapay zeka (Claude)', 'ANTHROPIC_API_KEY — yoksa demo modu'], ['smtp', 'E-posta gönderimi', 'SMTP_*'], ['imap', 'Gelen e-postalar', 'IMAP_*'],
+    ['whatsapp_api', 'WhatsApp API', 'WHATSAPP_* — yoksa wa.me aracı modu'], ['stripe', 'Kartla ödeme', 'STRIPE_SECRET_KEY'], ['netlify', 'Demo yayını (internet)', 'NETLIFY_TOKEN — yoksa demo yalnızca bu bilgisayarda açılır'], ['google_places', 'Google Places', 'GOOGLE_PLACES_API_KEY (isteğe bağlı)'],
+  ].map(([k, l, h]) => `<div class="sys-row ${status[k] ? 'on' : ''}">${icon(status[k] ? 'circle-check' : 'circle-dot', 'sm')}<b>${l}</b><span>${status[k] ? 'Bağlı' : h}</span></div>`).join('')}
+        <p class="muted small">Anahtarlar proje klasöründeki <code>.env</code> dosyasındadır; değiştirdikten sonra uygulamayı yeniden başlatın.</p></div>` : ''}
       ${section === 'business' ? `<div class="callout info">${icon('shield', 'sm')} IBAN veya bildirim e-postası değişirse tüm yöneticilere güvenlik uyarısı gider.</div>` : ''}
       <div class="form-grid">${fields.map(input).join('')}</div>
       <div class="settings-foot"><span class="muted small">Son kaydedilen değerler gösteriliyor</span><button class="btn primary">${icon('check', 'sm')} Değişiklikleri kaydet</button></div>
@@ -340,6 +359,7 @@ export async function viewSettings(main, sectionParam) {
     try {
       for (const [k, , t] of fields) {
         if (t === 'platforms') { data[k] = $$('[data-platform]:checked', form).map((x) => x.value); continue; }
+        if (t === 'prospect_categories') { data[k] = $$('[data-cat]:checked', form).map((x) => x.value); continue; }
         const el = form.elements[k];
         if (t === 'bool') data[k] = el.checked;
         else if (t === 'number') data[k] = Number(el.value || 0);

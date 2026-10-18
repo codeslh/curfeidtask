@@ -4,6 +4,7 @@ import path from 'node:path';
 import { config, dataPath } from '../config.js';
 import { all, get, insert, run, update } from '../db.js';
 import { AiUnavailableError, callClaude, mockGuard } from './ai.js';
+import { isLocalUrl, netlifyReady, publishToNetlify } from './deploy.js';
 import { notifyAdmin } from './notify.js';
 import { sign } from './secret.js';
 import { createPaymentRequest } from './payments.js';
@@ -307,7 +308,16 @@ export async function deployDemo(projectId) {
   const target = demoDir(slug);
   fs.rmSync(target, { recursive: true, force: true });
   fs.cpSync(versionDir(projectId, project.current_version), target, { recursive: true });
-  const url = `${config.publicUrl}/demo/${slug}/`;
+  let url = `${config.publicUrl}/demo/${slug}/`;
+  if (netlifyReady()) {
+    // Public copy so the customer can open it even when Kalfa runs on a laptop.
+    const meta = JSON.parse(get(`SELECT value FROM settings WHERE key = ?`, `_netlify_${projectId}`)?.value || '{}');
+    const pub = await publishToNetlify(target, { siteId: meta.siteId, name: meta.siteId ? undefined : `kalfa-demo-${slug}` });
+    run(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, `_netlify_${projectId}`, JSON.stringify({ siteId: pub.siteId }));
+    url = pub.url;
+  } else if (isLocalUrl(url)) {
+    logEvent(projectId, 'warning', 'Demo adresi yerel (localhost); müşteri bu bağlantıyı açamaz. NETLIFY_TOKEN ekleyin veya PUBLIC_URL\'i internete açın.');
+  }
   update('projects', projectId, { demo_slug: slug, demo_url: url });
   setStatus(projectId, 'demo_live', `Demo yayınlandı: ${url}`);
   if (project.conversation_id) {

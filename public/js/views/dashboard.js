@@ -17,6 +17,7 @@ const NOTE_ICON = {
   customer_approved: ['circle-check', 'good'], changes_requested: ['pencil', 'warn'], payment_received: ['banknote', 'good'],
   payment_overdue: ['clock', 'warn'], refund: ['hand-coins', 'warn'], lead_needs_admin: ['target', 'info'], daily_digest: ['calendar', 'neutral'],
   monthly_report: ['file-text', 'neutral'], ai_budget: ['cpu', 'warn'], job_failed: ['triangle-alert', 'bad'],
+  prospect_replied: ['message-circle', 'good'], prospect_scan: ['radar', 'accent'],
 };
 export const noteIcon = (type) => NOTE_ICON[type] || ['bell', 'neutral'];
 

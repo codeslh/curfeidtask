@@ -208,12 +208,12 @@ export function modal({ title, description = '', body = '', submitText = 'Kaydet
       if (!onSubmit) return close(true);
       const btn = $('button[type="submit"]', root);
       const err = $('.dialog-error', root);
-      err.textContent = '';
+      if (err) err.textContent = '';
       try {
         const r = await busy(btn, () => onSubmit(Object.fromEntries(new FormData(form)), form));
         if (r !== false) close(r ?? true);
       } catch (ex) {
-        err.textContent = ex.message;
+        if (err) err.textContent = ex.message; else toast(ex.message, 'error');
       }
     };
     document.body.append(root);

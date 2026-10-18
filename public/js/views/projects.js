@@ -108,6 +108,7 @@ async function viewProject(main, id) {
     actions: `${latest ? `<a class="btn" target="_blank" rel="noopener" href="${esc(latest.preview_url)}">${icon('eye', 'sm')} Önizle v${latest.version}</a>` : ''}
       ${p.demo_url ? `<a class="btn" target="_blank" rel="noopener" href="${esc(p.demo_url)}">${icon('globe', 'sm')} Canlı demo</a>` : ''}`,
   })}
+  ${p.demo_url && /^https?:\/\/(localhost|127\.|0\.0\.0\.0|192\.168\.|10\.)/.test(p.demo_url) ? `<div class="callout warn">${icon('triangle-alert', 'sm')}<span>Demo adresi bu bilgisayara ait (<code>${esc(p.demo_url)}</code>); müşteri açamaz. <code>.env</code> dosyasına <b>NETLIFY_TOKEN</b> ekleyip demoyu yeniden yayınlayın ya da adresi ngrok / Cloudflare Tunnel ile internete açın.</span></div>` : ''}
   ${p.status === 'cancelled' ? '' : `<ol class="steps">${STEPS.map(([l, ic], i) => {
     const state = p.status === 'delivered' || i < at ? 'done' : i === at ? (p.status === 'build_failed' ? 'fail' : 'now') : '';
     return `<li class="${state}"><span class="dot">${icon(state === 'done' ? 'check' : ic, 'xs')}</span><span>${l}</span></li>`;

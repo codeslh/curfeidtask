@@ -55,6 +55,8 @@ export async function viewConversations(main, id) {
     const c = d.conversation;
     const cu = d.customer || {};
     const who = { customer: cu.name || 'Müşteri', ai: 'Yapay zeka', admin: 'Siz', system: '' };
+    const waPhone = String(cu.phone || c.external_id || '').replace(/[^\d]/g, '');
+    let mode = sessionStorage.getItem(`relayMode:${id}`) || 'reply';
     let lastDay = '';
     const bubbles = d.messages.map((m) => {
       const dayStr = new Date(`${m.created_at.replace(' ', 'T')}Z`).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
@@ -62,7 +64,8 @@ export async function viewConversations(main, id) {
       lastDay = dayStr;
       if (m.sender === 'system') return `${sep}<div class="sys-msg">${icon('circle-dot', 'xs')} ${esc(m.body)}</div>`;
       const time = new Date(`${m.created_at.replace(' ', 'T')}Z`).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-      return `${sep}<div class="bubble ${m.sender}"><div class="b-meta">${m.sender === 'ai' ? icon('sparkles', 'xs') : ''}${esc(who[m.sender])}<time>${time}</time></div>${linkify(m.body)}</div>`;
+      const relayLink = d.relay && m.sender !== 'customer' && waPhone ? `<a class="b-relay" href="https://wa.me/${waPhone}?text=${encodeURIComponent(m.body)}" target="_blank" rel="noopener">${icon('external-link', 'xs')} WhatsApp'ta gönder</a>` : '';
+      return `${sep}<div class="bubble ${m.sender}"><div class="b-meta">${m.sender === 'ai' ? icon('sparkles', 'xs') : ''}${esc(who[m.sender])}<time>${time}</time></div>${linkify(m.body)}${relayLink}</div>`;
     }).join('');
 
     thread.innerHTML = `<header class="thread-head">
@@ -74,6 +77,7 @@ export async function viewConversations(main, id) {
         <button id="close" class="icon-btn" title="Konuşmayı kapat" aria-label="Konuşmayı kapat">${icon('check')}</button>
       </header>
       ${c.status === 'escalated' ? `<div class="thread-alert">${icon('circle-alert', 'sm')}<span><b>Size aktarıldı:</b> ${esc(c.escalation_reason || '')}</span></div>` : ''}
+      ${d.relay ? `<div class="relay-bar">${icon('message-circle', 'sm')}<span><b>WhatsApp aracı modu:</b> WhatsApp API bağlı değil. Müşterinin yazdığını "Müşteri mesajı ekle" ile yapıştırın; yapay zekanın cevabını balonun altındaki "WhatsApp'ta gönder" ile iletin.</span></div>` : ''}
       <div class="thread-body" id="msgs">${bubbles}</div>
       <footer class="composer">
         <div class="quick">${[
@@ -81,8 +85,9 @@ export async function viewConversations(main, id) {
           ...sc.languages.map((l) => [`${icon('cpu', 'xs')} ${esc(l.name)}`, `Teknoloji: ${l.name}`]),
           ...sc.products.map((p) => [`${icon('package', 'xs')} ${esc(p.name)}`, `${p.name}${p.demo_url ? ` örneği: ${p.demo_url}` : ''}`]),
         ].map(([l, t]) => `<button type="button" class="quick-chip" data-text="${esc(t)}">${l}</button>`).join('')}</div>
+        ${d.relay ? `<div class="composer-mode">${segmented('cmode', [['reply', `${icon('send', 'xs')} Yanıt yaz`], ['inbound', `${icon('arrow-down', 'xs')} Müşteri mesajı ekle`]], mode)}</div>` : ''}
         <form id="send" class="composer-box">
-          <textarea id="reply" rows="1" placeholder="${c.mode === 'ai' ? 'Yazarsanız konuşmayı devralırsınız…' : 'Bir mesaj yazın…'}" aria-label="Mesaj"></textarea>
+          <textarea id="reply" rows="1" placeholder="${mode === 'inbound' && d.relay ? 'Müşterinin WhatsApp\'tan yazdığı mesajı buraya yapıştırın…' : c.mode === 'ai' ? 'Yazarsanız konuşmayı devralırsınız…' : 'Bir mesaj yazın…'}" aria-label="Mesaj"></textarea>
           <button class="btn primary icon-only" aria-label="Gönder">${icon('send', 'sm')}</button>
         </form>
         <div class="composer-hint"><kbd>Enter</kbd> gönder · <kbd>Shift</kbd>+<kbd>Enter</kbd> yeni satır</div>
@@ -113,12 +118,15 @@ export async function viewConversations(main, id) {
     $('#takeover')?.addEventListener('click', () => act(() => POST(`/conversations/${id}/takeover`), 'Konuşmayı devraldınız').then(() => { lastCount = -1; draw(); }));
     $('#release')?.addEventListener('click', () => act(() => POST(`/conversations/${id}/release`), 'Yapay zeka devam edecek').then(() => { lastCount = -1; draw(); }));
     $('#close').onclick = () => act(() => POST(`/conversations/${id}/close`), 'Konuşma kapatıldı').then(() => { location.hash = '#/conversations'; });
+    onSegment(thread, 'cmode', (v) => { sessionStorage.setItem(`relayMode:${id}`, v); lastCount = -1; draw(); });
     $('#send').onsubmit = async (e) => {
       e.preventDefault();
       const text = reply.value.trim();
       if (!text) return;
       reply.value = '';
-      if (await act(() => POST(`/conversations/${id}/messages`, { text }))) { lastCount = -1; draw(); } else reply.value = text;
+      const inbound = d.relay && mode === 'inbound';
+      const r = await act(() => POST(`/conversations/${id}/${inbound ? 'inbound' : 'messages'}`, { text }), inbound ? 'Müşteri mesajı eklendi' : null);
+      if (r) { lastCount = -1; draw(); } else reply.value = text;
     };
   };
   await draw();

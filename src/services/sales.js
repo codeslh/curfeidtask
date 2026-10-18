@@ -5,8 +5,9 @@ import { notifyAdmin, sendMail } from './notify.js';
 import { getSection } from './settings.js';
 import { sendWhatsApp } from './whatsapp.js';
 
-// Imported lazily to avoid a circular import (projects -> sales -> projects).
+// Imported lazily to avoid circular imports (projects/prospecting -> sales -> ...).
 const projects = () => import('./projects.js');
+const prospecting = () => import('./prospecting.js');
 
 const SALES_SCHEMA = {
   type: 'object',
@@ -281,9 +282,21 @@ async function respondWithAi(conv, text) {
  */
 export async function handleIncoming({ channel, externalId, name, email, phone, text }) {
   const conv = findOrCreateConversation({ channel, externalId, name, email, phone });
+  return handleInConversation(conv, text);
+}
+
+/** Process a customer message for a known conversation (also used for hand-relayed WhatsApp). */
+export async function handleInConversation(conv, text) {
   addMessage(conv.id, 'customer', text);
+  const customer = get('SELECT * FROM customers WHERE id = ?', conv.customer_id);
+  const out = (await prospecting()).onInboundMessage(conv, customer, text);
+  if (out.optedOut) {
+    update('conversations', conv.id, { status: 'closed', mode: 'human' });
+    const reply = 'Kaydınızı sildik, bundan sonra size mesaj gönderilmeyecek. İyi çalışmalar dileriz.';
+    await sendToCustomer(conv.id, reply, 'ai');
+    return { conversationId: conv.id, reply, optedOut: true };
+  }
   if (conv.mode === 'human') {
-    const customer = get('SELECT name FROM customers WHERE id = ?', conv.customer_id);
     await notifyAdmin('customer_message', `Yeni müşteri mesajı: ${customer?.name || '#' + conv.id}`, text, `/conversations/${conv.id}`);
     return { conversationId: conv.id, reply: null };
   }

@@ -5,7 +5,9 @@ import { config, dataPath } from '../config.js';
 import { all, get, getDb, run, update } from '../db.js';
 import { monthTokenUsage } from './ai.js';
 import { notifyAdmin } from './notify.js';
-import { paymentInstructions } from './payments.js';
+import { pollMailbox } from './mailbox.js';
+import { paymentInstructions, syncStripePayments } from './payments.js';
+import { autoSend, scan as scanArea } from './prospecting.js';
 import { aiAnalysis, monthlyPdf, monthStats } from './reports.js';
 import { aiFollowup, sendToCustomer } from './sales.js';
 import { scanPlatforms } from './scanner.js';
@@ -37,6 +39,47 @@ defineJob('platform_scan', {
     const r = await scanPlatforms();
     if (r.skipped) return 'Önceki tarama hâlâ sürüyor, atlandı';
     return `${r.fetched} ilan: ${r.contacted} iletişim, ${r.needs_admin} admine, ${r.filtered} kapsam dışı, ${r.duplicate} tekrar${r.errors.length ? ` · ${r.errors.length} hata` : ''}`;
+  },
+});
+
+defineJob('prospect_scan', {
+  label: 'Bölge taraması',
+  description: 'Belirlediğiniz bölgedeki işletmeleri tarar, web sitelerini inceler ve yapay zekayla puanlayıp mesaj taslağı hazırlar. "Otomatik gönder" açıksa günlük sınır içinde e-posta / WhatsApp şablonuyla yazar.',
+  defaultSchedule: { type: 'daily', time: '10:30' },
+  defaultEnabled: false,
+  async run() {
+    const s = getSection('prospecting');
+    if (!s.location && s.lat == null) return 'Konum girilmemiş; Bölge taraması sayfasından konum seçin';
+    const r = await scanArea();
+    let tail = '';
+    if (s.auto_send) {
+      const sent = await autoSend();
+      tail = ` · ${sent.sent.length} işletmeye yazıldı${sent.reason ? ` (${sent.reason})` : ''}`;
+    }
+    if (r.analyzed) {
+      await notifyAdmin('prospect_scan', `Bölge taraması: ${r.analyzed} yeni işletme incelendi`, `${r.found} işletme bulundu, ${r.added} yeni eklendi${tail}.`, '/prospects');
+    }
+    return `${r.found} bulundu, ${r.added} yeni, ${r.analyzed} incelendi${tail}`;
+  },
+});
+
+defineJob('email_inbox', {
+  label: 'Gelen e-postalar',
+  description: 'IMAP gelen kutusunu okur; tanıdık müşterilerden ve iletişime geçilen işletmelerden gelen cevapları konuşmalara ekler, yapay zeka yanıtlar.',
+  defaultSchedule: { type: 'interval', minutes: 2 },
+  async run() {
+    const r = await pollMailbox();
+    return r.skipped ? r.reason : `${r.seen} okunmamış, ${r.handled} konuşmaya eklendi`;
+  },
+});
+
+defineJob('stripe_sync', {
+  label: 'Kart ödemesi kontrolü',
+  description: 'Bekleyen Stripe ödemelerinin durumunu sorgular; webhook gerekmediği için kendi bilgisayarınızda da çalışır.',
+  defaultSchedule: { type: 'interval', minutes: 5 },
+  async run() {
+    const r = await syncStripePayments();
+    return r.skipped ? 'Stripe ayarlı değil' : `${r.checked} ödeme kontrol edildi, ${r.paid} ödendi`;
   },
 });
 

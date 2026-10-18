@@ -15,6 +15,7 @@ const ICONS = [
   'cpu', 'percent', 'external-link', 'trash-2', 'pencil', 'circle-check', 'circle-alert', 'mail', 'phone', 'globe', 'hand-coins',
   'command', 'panel-left', 'kanban', 'list', 'layout-grid', 'arrow-up-right', 'arrow-down-right', 'activity', 'corner-down-left',
   'arrow-up', 'arrow-down', 'user', 'sparkle', 'wand-sparkles', 'chart-no-axes-column', 'funnel', 'circle-dot', 'loader',
+  'map-pin', 'map', 'store', 'phone-call', 'mail-check', 'ban', 'radar', 'scan-search', 'navigation', 'locate-fixed', 'circle-x', 'list-checks', 'gauge',
 ];
 
 let sprite;
@@ -35,5 +36,7 @@ router.get('/assets/icons.svg', (_req, res) => {
 });
 
 const fontOpts = { maxAge: '30d', immutable: true };
+// Map library for the prospecting page (tiles come from OpenStreetMap).
+router.use('/vendor/leaflet', express.static(path.join(ROOT, 'node_modules', 'leaflet', 'dist'), { maxAge: '7d' }));
 router.use('/assets/fonts/geist', express.static(path.join(ROOT, 'node_modules', 'geist', 'dist', 'fonts', 'geist-sans'), fontOpts));
 router.use('/assets/fonts/geist-mono', express.static(path.join(ROOT, 'node_modules', 'geist', 'dist', 'fonts', 'geist-mono'), fontOpts));

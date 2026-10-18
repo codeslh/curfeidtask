@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { all, get, insert, run, tx, update } from '../db.js';
+import { httpFetch } from './http.js';
 import { notifyAdmin } from './notify.js';
 import { logEvent } from './projects.js';
 import { sendToCustomer } from './sales.js';
@@ -176,6 +177,26 @@ export function cancelPayment(paymentId) {
   const payment = get('SELECT * FROM payments WHERE id = ?', paymentId);
   if (payment?.status !== 'pending') throw new Error('Sadece bekleyen ödemeler iptal edilebilir');
   update('payments', paymentId, { status: 'cancelled' });
+}
+
+/**
+ * Ask Stripe about pending card payments. Works without a public webhook URL,
+ * so card payments are also detected when Kalfa runs on a laptop.
+ */
+export async function syncStripePayments() {
+  if (!config.stripe.secretKey) return { checked: 0, paid: 0, skipped: true };
+  const pending = all(`SELECT * FROM payments WHERE status = 'pending' AND method = 'stripe' AND provider_ref LIKE 'cs_%'`);
+  let paid = 0;
+  for (const p of pending) {
+    const res = await httpFetch(`https://api.stripe.com/v1/checkout/sessions/${p.provider_ref}`, { headers: { Authorization: `Bearer ${config.stripe.secretKey}` } });
+    if (!res.ok) continue;
+    const session = await res.json();
+    if (session.payment_status === 'paid') {
+      await markPaid(p.id, { providerRef: session.payment_intent || session.id, note: 'Stripe durum sorgusu' });
+      paid++;
+    }
+  }
+  return { checked: pending.length, paid };
 }
 
 export async function handleStripeEvent(event) {

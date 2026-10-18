@@ -45,6 +45,9 @@ export const config = {
     phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID || '',
     verifyToken: env.WHATSAPP_VERIFY_TOKEN || 'dev-verify-token',
     appSecret: env.WHATSAPP_APP_SECRET || '',
+    // Approved template for business-initiated (first) messages, e.g. "kalfa_tanisma".
+    outreachTemplate: env.WHATSAPP_OUTREACH_TEMPLATE || '',
+    templateLang: env.WHATSAPP_TEMPLATE_LANG || 'tr',
   },
 
   stripe: {
@@ -56,6 +59,23 @@ export const config = {
     enabled: env.SCANNER_ENABLED === '1',
     intervalMinutes: Number(env.SCANNER_INTERVAL_MINUTES || 30),
   },
+
+  // Business prospecting: OpenStreetMap needs no key; Google Places is optional.
+  googlePlacesKey: env.GOOGLE_PLACES_API_KEY || '',
+  overpassUrl: env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
+  nominatimUrl: env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org',
+
+  // Inbound e-mail (replies from customers/prospects) — polled, so it works on a laptop.
+  imap: {
+    host: env.IMAP_HOST || '',
+    port: Number(env.IMAP_PORT || 993),
+    secure: env.IMAP_SECURE !== '0',
+    user: env.IMAP_USER || env.SMTP_USER || '',
+    pass: env.IMAP_PASS || env.SMTP_PASS || '',
+  },
+
+  // Optional public demo hosting (customers can't open localhost links).
+  netlifyToken: env.NETLIFY_TOKEN || '',
 
   admin: {
     email: env.ADMIN_EMAIL || 'admin@example.com',

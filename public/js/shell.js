@@ -12,6 +12,7 @@ export const NAV = [
   ['notifications', 'Bildirimler', 'bell', 'Çalışma alanı'],
   ['conversations', 'Konuşmalar', 'message-circle', 'Satış'],
   ['leads', 'İş ilanları', 'target', 'Satış'],
+  ['prospects', 'Bölge taraması', 'radar', 'Satış'],
   ['customers', 'Müşteriler', 'users', 'Satış'],
   ['projects', 'Projeler', 'folder-kanban', 'Üretim'],
   ['catalog', 'Katalog', 'package', 'Üretim'],

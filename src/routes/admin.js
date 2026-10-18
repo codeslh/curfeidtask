@@ -15,6 +15,12 @@ import path from 'node:path';
 import { getDb } from '../db.js';
 import { dataPath } from '../config.js';
 import * as scheduler from '../services/scheduler.js';
+import * as prospecting from '../services/prospecting.js';
+import { handleInConversation } from '../services/sales.js';
+import { whatsappApiReady } from '../services/whatsapp.js';
+import { mailboxReady } from '../services/mailbox.js';
+import { netlifyReady } from '../services/deploy.js';
+import { config } from '../config.js';
 import { asyncRoute, auditTrail, authorize, clientInfo, requireAuth } from './util.js';
 
 export const router = express.Router();
@@ -80,6 +86,8 @@ router.get('/conversations/:id', (req, res) => {
   const conv = get('SELECT * FROM conversations WHERE id = ?', id(req));
   if (!conv) return res.sendStatus(404);
   res.json({
+    // No WhatsApp Cloud API (e.g. running on a laptop): the admin relays messages via wa.me links.
+    relay: conv.channel === 'whatsapp' && !whatsappApiReady(),
     conversation: conv,
     customer: get('SELECT * FROM customers WHERE id = ?', conv.customer_id),
     project: conv.project_id ? projects.getProject(conv.project_id) : null,
@@ -89,11 +97,84 @@ router.get('/conversations/:id', (req, res) => {
 
 router.post('/conversations/:id/takeover', asyncRoute(async (req, res) => { await takeover(id(req)); res.json({ ok: true }); }));
 router.post('/conversations/:id/release', asyncRoute(async (req, res) => { await releaseToAi(id(req)); res.json({ ok: true }); }));
+// Hand-relayed inbound message (customer wrote on WhatsApp / phone; admin pastes it here).
+router.post('/conversations/:id/inbound', asyncRoute(async (req, res) => {
+  const conv = get('SELECT * FROM conversations WHERE id = ?', id(req));
+  if (!conv) return res.sendStatus(404);
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Mesaj boş olamaz' });
+  try { res.json(await handleInConversation(conv, text)); } catch (err) { bad(res, err); }
+}));
 router.post('/conversations/:id/close', (req, res) => { update('conversations', id(req), { status: 'closed' }); res.json({ ok: true }); });
 router.post('/conversations/:id/messages', asyncRoute(async (req, res) => {
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'Mesaj boş olamaz' });
   try { await adminSend(id(req), text); res.json({ ok: true }); } catch (err) { bad(res, err); }
+}));
+
+// --- Local business prospecting ---------------------------------------------------------
+
+const prospectRow = (p) => ({
+  ...p, raw: undefined,
+  site_check: p.site_check ? JSON.parse(p.site_check) : null,
+  signals: p.signals ? JSON.parse(p.signals) : [],
+  category_label: prospecting.CATEGORIES[p.category]?.label || p.category,
+  whatsapp_link: prospecting.whatsappLink(p),
+  full_message: p.message ? prospecting.fullMessage(p) : null,
+});
+router.get('/prospects', (req, res) => {
+  const s = getSettings().prospecting;
+  res.json({
+    settings: s,
+    stats: prospecting.stats(),
+    scanning: prospecting.isScanning(),
+    categories: Object.entries(prospecting.CATEGORIES).map(([k, v]) => ({ key: k, label: v.label })),
+    capabilities: { smtp: Boolean(config.smtp.host), whatsapp_template: Boolean(config.whatsapp.token && config.whatsapp.outreachTemplate), google: Boolean(config.googlePlacesKey) },
+    scans: all('SELECT * FROM prospect_scans ORDER BY id DESC LIMIT 10'),
+    prospects: all('SELECT * FROM prospects ORDER BY CASE WHEN score IS NULL THEN 1 ELSE 0 END, score DESC, id DESC LIMIT 500').map(prospectRow),
+  });
+});
+router.post('/prospects/scan', asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const patch = {};
+  for (const k of ['location', 'radius_km', 'categories', 'source', 'max_per_scan']) if (b[k] !== undefined) patch[k] = b[k];
+  if (b.lat !== undefined) { patch.lat = b.lat; patch.lng = b.lng; }
+  else if (b.location !== undefined && b.location !== getSettings().prospecting.location) { patch.lat = null; patch.lng = null; }
+  if (Object.keys(patch).length) saveSection('prospecting', patch);
+  try { res.json(await prospecting.scan()); } catch (err) { bad(res, err); }
+}));
+router.post('/prospects/geocode', asyncRoute(async (req, res) => {
+  try { res.json(await prospecting.geocode(String(req.body?.q || ''))); } catch (err) { bad(res, err); }
+}));
+router.post('/prospects/auto-send', asyncRoute(async (req, res) => {
+  try { res.json(await prospecting.autoSend({ max: Number(req.body?.max) || Infinity })); } catch (err) { bad(res, err); }
+}));
+router.post('/prospects/:id/analyze', asyncRoute(async (req, res) => {
+  try { res.json(prospectRow(await prospecting.analyzeProspect(id(req)))); } catch (err) { bad(res, err); }
+}));
+router.post('/prospects/:id/contact', asyncRoute(async (req, res) => {
+  try { res.json(prospectRow(await prospecting.contact(id(req), { channel: req.body?.channel, message: req.body?.message }))); } catch (err) { bad(res, err); }
+}));
+router.put('/prospects/:id', (req, res) => {
+  const patch = {};
+  if (req.body?.message !== undefined) patch.message = String(req.body.message);
+  if (req.body?.email !== undefined) patch.email = String(req.body.email).trim() || null;
+  if (req.body?.phone !== undefined) patch.phone = String(req.body.phone).replace(/[^\d]/g, '') || null;
+  update('prospects', id(req), patch);
+  res.json(prospectRow(get('SELECT * FROM prospects WHERE id = ?', id(req))));
+});
+router.post('/prospects/:id/skip', (req, res) => { prospecting.skip(id(req)); res.json({ ok: true }); });
+router.post('/prospects/:id/block', (req, res) => {
+  const p = get('SELECT * FROM prospects WHERE id = ?', id(req));
+  if (!p) return res.sendStatus(404);
+  prospecting.block(p, 'Admin kara listeye aldı');
+  res.json({ ok: true });
+});
+
+// System readiness for the "works on a laptop" checklist on the dashboard/settings.
+router.get('/system/status', (_req, res) => res.json({
+  ai: !config.aiMock, smtp: Boolean(config.smtp.host), imap: mailboxReady(), whatsapp_api: whatsappApiReady(),
+  stripe: Boolean(config.stripe.secretKey), netlify: netlifyReady(), google_places: Boolean(config.googlePlacesKey), public_url: config.publicUrl,
 }));
 
 // --- Customers ----------------------------------------------------------------------
@@ -372,7 +453,10 @@ router.get('/settings', (_req, res) => res.json(getSettings()));
 router.put('/settings/:section', asyncRoute(async (req, res) => {
   const before = getSettings()[req.params.section];
   let saved;
-  try { saved = saveSection(req.params.section, req.body || {}); } catch (err) { return bad(res, err); }
+  const body = { ...(req.body || {}) };
+  // A new location must be geocoded again on the next scan.
+  if (req.params.section === 'prospecting' && body.location !== undefined && body.location !== before?.location && body.lat === undefined) { body.lat = null; body.lng = null; }
+  try { saved = saveSection(req.params.section, body); } catch (err) { return bad(res, err); }
   const { ip, userAgent } = clientInfo(req);
   security.logEvent({ userId: req.session.user_id, email: req.session.email, event: 'settings_changed', ip, userAgent, detail: req.params.section });
   // Changing where money goes is the classic account-takeover move: always alert.

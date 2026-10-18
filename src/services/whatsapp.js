@@ -17,6 +17,24 @@ export async function sendWhatsApp(to, body) {
   return { delivered: true };
 }
 
+/** Business-initiated message: must use a template approved in Meta Business Manager. */
+export async function sendWhatsAppTemplate(to, name, lang, params = []) {
+  const { token, phoneNumberId } = config.whatsapp;
+  if (!token || !phoneNumberId) throw new Error('WhatsApp API ayarlı değil');
+  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp', to, type: 'template',
+      template: { name, language: { code: lang }, components: params.length ? [{ type: 'body', parameters: params.map((text) => ({ type: 'text', text: String(text) })) }] : [] },
+    }),
+  });
+  if (!res.ok) throw new Error(`WhatsApp şablon gönderimi başarısız: ${res.status} ${await res.text()}`);
+}
+
+/** Without the Cloud API (e.g. on a laptop) WhatsApp is relayed by hand through wa.me links. */
+export const whatsappApiReady = () => Boolean(config.whatsapp.token && config.whatsapp.phoneNumberId);
+
 export function verifySignature(rawBody, header) {
   if (!config.whatsapp.appSecret) return true;
   if (!header?.startsWith('sha256=')) return false;

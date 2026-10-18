@@ -18,11 +18,12 @@ Kalfa, freelancerlar için yapay zeka destekli bir CRM ve otomatik yazılım ür
 | Admine aktarma | Müşteri yetkili isterse, art arda memnuniyetsizlik, aylık token bütçesi dolarsa, API kredisi biterse / limit / hata / ret durumunda; admin "Konuşmayı devral" / "Yapay zekaya devret" |
 | Kısayollar | Temalar, programlama dilleri ve örnek ürünler hem admin sohbet ekranında hem müşteri sohbetinde tek tık kısayol |
 | Platform tarama | Demo, Freelancer.com (açık API), herhangi bir RSS beslemesi; anahtar kelime, hariç kelime, bütçe aralığı, para birimi, ilan yaşı, tarama başına limit |
+| Bölge taraması | Çevrenizdeki işletmeleri (OpenStreetMap, ücretsiz; isteğe bağlı Google Places) haritada bulur, web sitelerini tek tek inceler (site var mı, sadece Instagram mı, HTTPS, mobil uyum, © yılı, hız), yapay zekayla "web sitesine ihtiyacı var mı?" diye 0-100 puanlar ve işletmeye özel mesaj taslağı yazar. E-posta, WhatsApp şablonu veya tek tık "WhatsApp'ta aç" ile gönderim; İPTAL yazanlar kalıcı olarak engellenir |
 | Proje üretimi | Plan → kod üretimi (Claude), sürüm geçmişi, imzalı önizleme linkleri, admin düzeltme döngüsü, demo yayını (`/demo/...`), müşteri onayı / değişiklik talebi |
 | Ödeme | IBAN ile otomatik ödeme talebi (referans kodlu), isteğe bağlı Stripe kart ödemesi + webhook, ödeme geçmişi, kısmi/tam iade, satış ve iade faturaları (PDF) |
 | CRM / raporlar | Aylık net/brüt ciro, gider (yapay zeka maliyeti otomatik), kâr, yeni müşteri, dönüşüm, 12 aylık grafik, ürün performansı, yapay zeka durum değerlendirmesi ve çözüm önerileri, aylık PDF özet |
 | Güvenlik | İki adımlı doğrulama (QR + kurtarma kodları), roller (Yönetici / Operatör / İzleyici), denetim kaydı, şifremi unuttum, oturum yönetimi, IP izin listesi, hız sınırları, şüpheli işlem uyarıları, yedek ve CSV — ayrıntılar aşağıda |
-| Zamanlanmış görevler | 10 otomatik görev: tarama, takip mesajı, ödeme hatırlatma, günlük özet, aylık PDF rapor, yedek, güvenlik taraması… — ayrıntılar aşağıda |
+| Zamanlanmış görevler | 13 otomatik görev: tarama, takip mesajı, ödeme hatırlatma, günlük özet, aylık PDF rapor, yedek, güvenlik taraması… — ayrıntılar aşağıda |
 
 ## Marka
 
@@ -63,6 +64,9 @@ Modern, çerçevesiz (Bootstrap vb. kullanılmadan) kendi tasarım sistemiyle ya
 | Görev | Varsayılan | Ne yapar |
 |---|---|---|
 | Freelancer platform taraması | 30 dk (`SCANNER_ENABLED=1` ile açık) | İlanları tarar, müşteriye yazar veya admine bildirir |
+| Bölge taraması | Her gün 10:30 (kapalı başlar) | Kayıtlı bölgeyi tarar, yeni işletmeleri puanlar; "Otomatik gönder" açıksa günlük sınır içinde yazar |
+| Gelen e-postalar | 2 dk | IMAP gelen kutusundaki cevapları konuşmalara ekler (yalnızca tanıdık adresler) |
+| Kart ödemesi kontrolü | 5 dk | Bekleyen Stripe ödemelerini sorgular; webhook gerekmez |
 | Cevapsız müşteriye takip | Saatlik | 24 saat cevap vermeyen müşteriye yapay zeka nazik bir takip mesajı yazar |
 | Ödeme hatırlatmaları | Her gün 10:00 | Bekleyen ödemelere IBAN bilgisiyle hatırlatma; vadesi geçenleri admine bildirir |
 | Bekleyen konuşma uyarısı | 30 dk | Admine aktarılıp yanıtlanmayan konuşmalar için tekrar uyarır |
@@ -136,7 +140,22 @@ Hiçbir anahtar girmeden uygulama **demo modunda** tam çalışır: yapay zeka c
 
 - `ANTHROPIC_API_KEY` — gerçek yapay zeka (Claude). [console.anthropic.com](https://console.anthropic.com) üzerinden alınır.
 - `SMTP_*` — size bildirim e-postası gitmesi için (ör. Gmail uygulama şifresi).
-- `WHATSAPP_*`, `STRIPE_*` — isteğe bağlı entegrasyonlar (aşağıda).
+- `IMAP_*` — müşterilerin e-postayla verdiği cevapları okumak için (Gmail: `imap.gmail.com`, aynı uygulama şifresi).
+- `WHATSAPP_*`, `STRIPE_*`, `NETLIFY_TOKEN`, `GOOGLE_PLACES_API_KEY` — isteğe bağlı entegrasyonlar (aşağıda).
+
+Ayarlar → İşletme sayfasının en üstündeki **Bağlantılar** listesi hangilerinin hazır olduğunu gösterir.
+
+### Kendi bilgisayarınızda neler çalışır?
+
+Her şey. İnternetten size gelen istek (webhook) gereken yerler için yerel alternatifler var:
+
+| Özellik | Sunucuda | Bilgisayarınızda |
+|---|---|---|
+| WhatsApp | Cloud API webhook'u | **Aracı modu:** müşterinin mesajını konuşmaya "Müşteri mesajı ekle" ile yapıştırırsınız, yapay zekanın cevabını balonun altındaki "WhatsApp'ta gönder" ile kendi WhatsApp'ınızdan iletirsiniz |
+| E-posta cevapları | IMAP | IMAP (aynı) — 2 dakikada bir okunur |
+| Kart ödemesi | Stripe webhook | Stripe durumu 5 dakikada bir sorgulanır |
+| Demo yayını | `PUBLIC_URL/demo/...` | `NETLIFY_TOKEN` girerseniz demo otomatik olarak `*.netlify.app` adresine yüklenir; girmezseniz demo yalnızca sizin bilgisayarınızda açılır (proje sayfasında uyarı çıkar) |
+| Bölge taraması | OpenStreetMap | OpenStreetMap (aynı), ek kurulum yok |
 
 ### Sık karşılaşılan sorunlar
 
@@ -164,11 +183,14 @@ Testler demo modunda tüm akışı uçtan uca dener: sohbet → anlaşma → ür
 - **WhatsApp:** Meta Business'ta bir WhatsApp Cloud API uygulaması açın, webhook adresi `https://alanadiniz.com/webhooks/whatsapp`, doğrulama kelimesi `WHATSAPP_VERIFY_TOKEN`. `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET` girin.
 - **E-posta:** SMTP bilgileri. Girilmezse bildirimler konsola yazılır ve panelde görünmeye devam eder.
 - **Stripe (isteğe bağlı):** Ayarlar → Ödeme → "Stripe" seçin, `STRIPE_SECRET_KEY` ve webhook (`/webhooks/stripe`, olay: `checkout.session.completed`) için `STRIPE_WEBHOOK_SECRET` girin. Para doğrudan sizin Stripe hesabınıza gelir. Havale/EFT ödemelerini panelden "Ödendi işaretle" ile onaylarsınız.
+- **Bölge taraması:** Varsayılan kaynak OpenStreetMap'tir (Nominatim + Overpass, anahtar gerekmez; yoğun kullanımda kendi Overpass sunucunuzu `OVERPASS_URL` ile verebilirsiniz). Google Places daha çok işletme ve telefon bilgisi verir; `GOOGLE_PLACES_API_KEY` girip kaynak olarak seçin (ücretlidir). WhatsApp'tan *otomatik* ilk mesaj için Meta'da onaylı bir şablon gerekir: `WHATSAPP_OUTREACH_TEMPLATE` (gövdesinde `{{1}}` = işletme adı) ve `WHATSAPP_TEMPLATE_LANG`.
+- **Netlify:** app.netlify.com → User settings → Applications → Personal access token; `NETLIFY_TOKEN` olarak girin. Her proje kendi sitesine yüklenir, yeniden yayında aynı adres kullanılır.
 - **Platformlar:** `src/services/platforms/` altına `{ name, label, fetchLeads(scope) }` biçiminde yeni bir dosya ekleyip `index.js`'e kaydederek yeni platform eklenebilir.
 
 ## Bilmeniz gerekenler
 
 - **Platform kuralları:** Upwork, Fiverr, Bionluk gibi platformların çoğu otomatik tarama ve platform dışı iletişimi yasaklar. Hazır gelen adaptörler yalnızca açık API (Freelancer.com) ve RSS kullanır; platform üzerinden mesajlaşma gereken ilanlar admine bırakılır. Yeni bir adaptör eklerken ilgili platformun kullanım şartlarına uyun.
+- **Bölge taraması ve ticari ileti kuralları:** Türkiye'de işletmelere izinsiz tanıtım mesajı göndermek 6563 sayılı kanun / İYS ve KVKK kapsamındadır; WhatsApp da istenmeyen mesajları kısıtlar. Bu yüzden Kalfa varsayılan olarak hiçbir şeyi kendiliğinden göndermez: her mesajı siz onaylarsınız, günlük gönderim sınırı vardır, her mesajın sonuna "İPTAL yazın" cümlesi eklenir ve İPTAL yazanların telefonu/e-postası kalıcı olarak engellenir. Zincir markalar düşük puan alır. Kurallara uymak sizin sorumluluğunuzdadır. İşletme siteleri incelenirken yerel ağ adreslerine istek atılmaz.
 - **Fatura:** Sistem fatura belgesi (PDF) üretir ama resmi e-Fatura/e-Arşiv değildir; yasal yükümlülükler için bir entegratör kullanın.
 - **Havale iadeleri:** IBAN ile alınan bir ödemeyi iade ettiğinizde sistem kaydı ve iade belgesini oluşturur, parayı bankanızdan sizin göndermeniz gerekir. Stripe ödemelerinde iade otomatik yapılır.
 - **Demolar:** Yapay zekanın ürettiği siteler `sandbox` CSP başlığıyla sunulur; panelin oturum çerezlerine erişemezler. Dilerseniz `PUBLIC_URL` için ayrı bir alt alan adı kullanın.
@@ -184,7 +206,9 @@ src/
   services/    ai.js (Claude), sales.js (satış asistanı), projects.js (üretim/demo),
                payments.js, reports.js (istatistik, PDF), scanner.js, security.js,
                totp.js (2FA), ratelimit.js, scheduler.js + jobs.js (zamanlanmış görevler),
-               notify.js (e-posta), whatsapp.js, settings.js, platforms/
+               notify.js (e-posta), whatsapp.js, settings.js, platforms/,
+               prospecting.js (bölge taraması), mailbox.js (IMAP), deploy.js (Netlify),
+               http.js (dış istekler + iç ağ koruması)
 public/        index.html + js/ (admin paneli: core, charts, shell + komut paleti, views/*),
                styles.css (tasarım sistemi), chat.html + chat.js + chat.css (müşteri sohbeti)
 scripts/       setup.js (npm run setup)
